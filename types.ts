@@ -10,14 +10,24 @@ export interface User {
   role: Role;
   wallet: number;
   totalSalesCount: number;
+  notifications: AppNotification[];
+  paymentAccounts?: {
+    bKash?: string;
+    Nagad?: string;
+    Rocket?: string;
+  };
 }
 
 export type SaleStatus = 'pending' | 'completed';
+export type WithdrawStatus = 'pending' | 'completed';
 
 export interface Product {
   id: string;
   name: string;
   adminShare: number;
+  description: string;
+  mainImage?: string;
+  gallery: string[];
 }
 
 export interface Announcement {
@@ -42,12 +52,23 @@ export interface Sale {
   approvedAt?: string;
 }
 
+export interface WithdrawRequest {
+  id: string;
+  employeeId: string;
+  employeeEmail: string;
+  amount: number;
+  method: 'bKash' | 'Nagad' | 'Rocket';
+  accountNumber: string;
+  status: WithdrawStatus;
+  timestamp: string;
+}
+
 export interface AppNotification {
   id: string;
   message: string;
   timestamp: string;
   read: boolean;
-  type: 'sale' | 'announcement';
+  type: 'sale' | 'announcement' | 'withdraw';
 }
 
 export interface AppState {
@@ -56,6 +77,6 @@ export interface AppState {
   sales: Sale[];
   products: Product[];
   announcements: Announcement[];
+  withdrawRequests: WithdrawRequest[];
   adminWallet: number;
-  notifications: AppNotification[];
 }
