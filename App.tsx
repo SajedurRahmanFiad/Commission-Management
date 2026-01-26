@@ -60,8 +60,15 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        console.error('Storage quota exceeded. Images might be too large.');
+        showToast('Storage limit reached! Please use smaller images.', 'error');
+      }
+    }
+  }, [state, showToast]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -356,7 +363,7 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Ledger Records</h3>
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Sales</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -613,6 +620,8 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
   const currentAccountNum = currentAccounts[form.method as keyof typeof currentAccounts] || '';
   const displayRequests = isEmployee ? state.withdrawRequests.filter(r => r.employeeId === state.currentUser?.id) : state.withdrawRequests;
 
+  const canWithdraw = form.amount && parseFloat(form.amount) >= 200 && parseFloat(form.amount) <= (state.currentUser?.wallet || 0) && !!currentAccountNum;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {isEmployee && (
@@ -622,11 +631,12 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
             <div className="mb-6 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
               <p className="text-[10px] font-bold text-emerald-600 uppercase mb-1">Balance</p>
               <h4 className="text-xl font-bold text-emerald-700">৳{state.currentUser?.wallet.toLocaleString()}</h4>
+              <p className="text-[9px] font-medium text-slate-400 mt-2 uppercase tracking-wide">Min Withdraw: ৳200</p>
             </div>
             <form className="space-y-4" onSubmit={e => { e.preventDefault(); onWithdraw(parseFloat(form.amount), form.method, currentAccountNum); setForm({ ...form, amount: '' }); }}>
               <div>
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Amount</label>
-                <input type="number" required className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border outline-none font-bold" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
+                <input type="number" required min="200" className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border outline-none font-bold" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Gateway</label>
@@ -636,7 +646,10 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
                   <option value="Rocket">Rocket</option>
                 </select>
               </div>
-              <button disabled={!form.amount || !currentAccountNum} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold disabled:bg-slate-200 transition-all">Submit Request</button>
+              {!currentAccountNum && (
+                <p className="text-[10px] text-red-500 font-medium">Please set your {form.method} number in My Profile.</p>
+              )}
+              <button disabled={!canWithdraw} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold disabled:bg-slate-200 disabled:text-slate-500 transition-all">Submit Request</button>
             </form>
           </div>
         </div>
@@ -652,6 +665,7 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
                 {!isEmployee && <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Partner</th>}
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Amount</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Method</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Account</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Status</th>
                 {!isEmployee && <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>}
               </tr>
@@ -662,12 +676,13 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
                   {!isEmployee && <td className="px-6 py-4 font-semibold">{r.employeeEmail.split('@')[0]}</td>}
                   <td className="px-6 py-4 font-bold text-indigo-600">৳{r.amount}</td>
                   <td className="px-6 py-4 uppercase">{r.method}</td>
+                  <td className="px-6 py-4 font-mono text-slate-500">{r.accountNumber}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded-lg font-bold uppercase text-[9px] ${r.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{r.status}</span>
                   </td>
                   {!isEmployee && (
                     <td className="px-6 py-4 text-right">
-                      {r.status === 'pending' ? <button onClick={() => onComplete(r.id)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold text-[9px] uppercase">Paid</button> : <span className="text-emerald-500 font-bold uppercase text-[9px]">Settled</span>}
+                      {r.status === 'pending' ? <button onClick={() => onComplete(r.id)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold text-[9px] uppercase">Mark Paid</button> : <span className="text-emerald-500 font-bold uppercase text-[9px]">Settled</span>}
                     </td>
                   )}
                 </tr>
@@ -685,7 +700,85 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
 
 const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) => void; onDelete: (id: string) => void }> = ({ state, onCreate, onDelete }) => {
   const [form, setForm] = useState({ email: '', password: '' });
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const employees = state.users.filter(u => u.role === 'employee');
+
+  if (selectedEmployeeId) {
+    const emp = state.users.find(u => u.id === selectedEmployeeId);
+    const empSales = state.sales.filter(s => s.employeeId === selectedEmployeeId);
+    const empWithdraws = state.withdrawRequests.filter(r => r.employeeId === selectedEmployeeId);
+
+    return (
+      <div className="space-y-8">
+        <button onClick={() => setSelectedEmployeeId(null)} className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors">
+          &larr; Back to Team List
+        </button>
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex items-center gap-6">
+          {emp?.avatar ? <img src={emp.avatar} className="h-20 w-20 rounded-xl object-cover" /> : <div className="h-20 w-20 bg-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold text-white uppercase">{emp?.email.charAt(0)}</div>}
+          <div>
+            <h3 className="text-2xl font-bold text-slate-800">{emp?.username || emp?.email.split('@')[0]}</h3>
+            <p className="text-sm text-slate-400">{emp?.email}</p>
+          </div>
+          <div className="ml-auto flex gap-4">
+             <div className="bg-slate-50 px-6 py-4 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Balance</p>
+                <p className="text-lg font-bold text-emerald-600">৳{emp?.wallet.toLocaleString()}</p>
+             </div>
+             <div className="bg-slate-50 px-6 py-4 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Sales Count</p>
+                <p className="text-lg font-bold text-indigo-600">{emp?.totalSalesCount}</p>
+             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sale History</h4>
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              <table className="w-full text-left">
+                <tbody className="divide-y divide-slate-100">
+                  {empSales.map(s => (
+                    <tr key={s.id} className="text-xs">
+                      <td className="px-6 py-4 font-medium">{s.productName}</td>
+                      <td className="px-6 py-4 font-bold">৳{s.amount}</td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase font-bold ${s.status === 'completed' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{s.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {empSales.length === 0 && <tr><td className="p-8 text-center text-slate-400 italic">No sales found.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Withdraw History</h4>
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              <table className="w-full text-left">
+                <tbody className="divide-y divide-slate-100">
+                  {empWithdraws.map(w => (
+                    <tr key={w.id} className="text-xs">
+                      <td className="px-6 py-4 font-medium">{w.method}</td>
+                      <td className="px-6 py-4 font-bold">৳{w.amount}</td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase font-bold ${w.status === 'completed' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{w.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {empWithdraws.length === 0 && <tr><td className="p-8 text-center text-slate-400 italic">No payouts yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -703,8 +796,8 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {employees.map(e => (
-          <div key={e.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative group transition-all">
-            <button onClick={() => onDelete(e.id)} className="absolute top-4 right-4 text-slate-200 hover:text-red-500"><Icons.Trash /></button>
+          <div key={e.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative group transition-all hover:border-indigo-400 cursor-pointer" onClick={() => setSelectedEmployeeId(e.id)}>
+            <button onClick={(event) => { event.stopPropagation(); onDelete(e.id); }} className="absolute top-4 right-4 text-slate-200 hover:text-red-500 transition-colors z-10"><Icons.Trash /></button>
             <div className="flex items-center gap-4 mb-6">
               {e.avatar ? <img src={e.avatar} className="h-12 w-12 rounded-xl object-cover" /> : <div className="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center text-lg font-bold text-white uppercase">{e.email.charAt(0)}</div>}
               <div>
@@ -721,6 +814,9 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
                 <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Earned</p>
                 <p className="text-sm font-bold text-emerald-600">৳{e.wallet.toLocaleString()}</p>
               </div>
+            </div>
+            <div className="mt-4 text-[9px] font-bold text-indigo-600 uppercase text-center opacity-0 group-hover:opacity-100 transition-opacity">
+              View Detailed Insight
             </div>
           </div>
         ))}
@@ -771,6 +867,10 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 1024 * 500) {
+        alert('Image too large! Please choose a file smaller than 500KB.');
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => setAvatar(reader.result as string);
       reader.readAsDataURL(file);
