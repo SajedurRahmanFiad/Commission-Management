@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Sale, Role, AppState, AppNotification, Product, Announcement, WithdrawRequest } from './types';
 import { Icons, ADMIN_FEE_DEFAULT } from './constants';
-import Layout from './components/Layout';
+import Layout, { formatDateTime } from './components/Layout';
 import { generateApprovalEmail } from './services/geminiService';
 
 const STORAGE_KEY = 'commission_pro_super_v4_final';
@@ -64,8 +64,8 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        console.error('Storage quota exceeded. Images might be too large.');
-        showToast('Storage limit reached! Please use smaller images.', 'error');
+        console.error('Storage quota exceeded. Using larger images causes this in LocalStorage. Move to MariaDB to resolve permanently.');
+        showToast('Storage Limit! Large images cannot be saved.', 'error');
       }
     }
   }, [state, showToast]);
@@ -196,7 +196,7 @@ const App: React.FC = () => {
       ...prev,
       withdrawRequests: prev.withdrawRequests.map(r => r.id === id ? { ...r, status: 'completed' } : r)
     }));
-    showToast('Payment completed', 'success');
+    showToast('Payment marked as completed', 'success');
   };
 
   const addAnnouncement = (title: string, content: string) => {
@@ -339,41 +339,38 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 md:space-y-8">
       <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Operational Overview</h2>
-        </div>
-        <button onClick={() => setShowModal(true)} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold shadow-sm hover:bg-indigo-700 transition-all flex items-center gap-2">
+        <h2 className="text-xl md:text-2xl font-bold text-slate-800">Overview</h2>
+        <button onClick={() => setShowModal(true)} className="px-4 md:px-5 py-2 md:py-2.5 bg-indigo-600 text-white rounded-xl font-semibold shadow-sm hover:bg-indigo-700 transition-all flex items-center gap-2 text-sm">
           <Icons.Plus /> New Sale
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
         {stats.map((s, i) => (
-          <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 flex items-center gap-5">
-            <div className={`p-3 rounded-xl bg-slate-50 ${s.color}`}><s.icon /></div>
+          <div key={i} className="bg-white p-5 md:p-6 rounded-2xl border border-slate-200 flex items-center gap-4 md:gap-5 shadow-sm">
+            <div className={`p-2.5 md:p-3 rounded-xl bg-slate-50 ${s.color}`}><s.icon /></div>
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{s.label}</p>
-              <h3 className="text-xl font-bold text-slate-800">{s.val}</h3>
+              <h3 className="text-lg md:text-xl font-bold text-slate-800">{s.val}</h3>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
           <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Sales</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[600px]">
             <thead>
               <tr className="bg-white border-b border-slate-100">
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Origin</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Gateway</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Client</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Item</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Amount</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Amount</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Status</th>
                 {!isEmployee && <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right">Action</th>}
               </tr>
@@ -388,11 +385,10 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
                   <td className="px-6 py-4">
                     <div className="flex flex-col">
                       <span className="text-xs font-medium text-slate-700">{sale.customerEmail}</span>
-                      <span className="text-[10px] text-slate-400">{sale.customerPhone}</span>
+                      <span className="text-[10px] text-slate-400">{formatDateTime(sale.timestamp)}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-xs text-slate-600">{sale.productName}</td>
-                  <td className="px-6 py-4 text-xs font-bold text-indigo-600">৳{sale.amount}</td>
+                  <td className="px-6 py-4 text-xs font-bold text-indigo-600 text-center">৳{sale.amount}</td>
                   <td className="px-6 py-4 text-center">
                     <span className={`px-2 py-1 rounded-lg text-[9px] font-bold uppercase ${sale.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                       {sale.status}
@@ -416,8 +412,8 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-2xl p-8 shadow-xl animate-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-2xl p-6 md:p-8 shadow-xl animate-in zoom-in duration-200">
             <h4 className="text-lg font-bold text-slate-800 mb-6">Record New Sale</h4>
             <form className="grid grid-cols-1 md:grid-cols-2 gap-4" onSubmit={e => {
               e.preventDefault();
@@ -437,14 +433,14 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Amount</label>
                 <input type="number" required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Product</label>
                 <select required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none" value={formData.productId} onChange={e => setFormData({ ...formData, productId: e.target.value })}>
                   <option value="">Select Product</option>
                   {state.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Method</label>
                 <select required className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none" value={formData.method} onChange={e => setFormData({ ...formData, method: e.target.value as any })}>
                   <option value="bKash">bKash</option>
@@ -469,11 +465,9 @@ const ProductListView: React.FC<{ state: AppState; isAdmin: boolean; onSelect: (
   const [form, setForm] = useState({ name: '', share: '', desc: '' });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 md:space-y-8">
       <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Products</h2>
-        </div>
+        <h2 className="text-xl md:text-2xl font-bold text-slate-800">Products</h2>
         {isAdmin && (
           <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold text-sm">
             Add Product
@@ -481,18 +475,18 @@ const ProductListView: React.FC<{ state: AppState; isAdmin: boolean; onSelect: (
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {state.products.map(p => (
           <div key={p.id} onClick={() => onSelect(p.id)} className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:border-indigo-400 transition-all cursor-pointer shadow-sm group">
-            <div className="h-48 bg-slate-50 flex items-center justify-center text-slate-300">
+            <div className="h-40 md:h-48 bg-slate-50 flex items-center justify-center text-slate-300">
               {p.mainImage ? <img src={p.mainImage} className="w-full h-full object-cover" /> : <Icons.Tag />}
             </div>
-            <div className="p-6">
-              <h4 className="font-bold text-slate-800">{p.name}</h4>
+            <div className="p-4 md:p-6">
+              <h4 className="font-bold text-slate-800 text-sm md:text-base">{p.name}</h4>
               <p className="text-xs text-slate-400 mt-1 line-clamp-1">{p.description}</p>
               <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Share</p>
-                <span className="text-lg font-bold text-indigo-600">৳{p.adminShare}</span>
+                <span className="text-base md:text-lg font-bold text-indigo-600">৳{p.adminShare}</span>
               </div>
             </div>
           </div>
@@ -556,8 +550,8 @@ const ProductDetailView: React.FC<{ product: Product; isAdmin: boolean; onClose:
   return (
     <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
       <div className="flex flex-col lg:flex-row">
-        <div className="lg:w-2/5 p-8 bg-slate-50/50 border-r border-slate-100">
-          <div className="relative group rounded-xl overflow-hidden shadow-sm border border-slate-200 aspect-square">
+        <div className="lg:w-2/5 p-6 md:p-8 bg-slate-50/50 border-b lg:border-r lg:border-b-0 border-slate-100">
+          <div className="relative group rounded-xl overflow-hidden shadow-sm border border-slate-200 aspect-square max-w-[400px] mx-auto">
             {product.mainImage ? <img src={product.mainImage} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><Icons.Tag /></div>}
             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
               {product.mainImage && <button onClick={() => downloadImage(product.mainImage!, 'main')} className="p-2 bg-white rounded-lg text-indigo-600"><Icons.Download /></button>}
@@ -565,7 +559,7 @@ const ProductDetailView: React.FC<{ product: Product; isAdmin: boolean; onClose:
             </div>
             <input id="main-up" type="file" className="hidden" onChange={(e) => handleImgUpload(e, 'main')} />
           </div>
-          <div className="grid grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-4 gap-2 md:gap-3 mt-4 max-w-[400px] mx-auto">
             {product.gallery?.map((img, i) => (
               <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 group">
                 <img src={img} className="w-full h-full object-cover" />
@@ -579,11 +573,11 @@ const ProductDetailView: React.FC<{ product: Product; isAdmin: boolean; onClose:
             <input id="gal-up" type="file" multiple className="hidden" onChange={(e) => handleImgUpload(e, 'gallery')} />
           </div>
         </div>
-        <div className="lg:w-3/5 p-8 relative">
-          <button onClick={onClose} className="absolute top-6 right-6 text-slate-300 hover:text-slate-800 transition-colors">✕</button>
+        <div className="lg:w-3/5 p-6 md:p-8 relative">
+          <button onClick={onClose} className="absolute top-4 right-4 text-slate-300 hover:text-slate-800 transition-colors p-2">✕</button>
           <div className="space-y-6">
             <div>
-              {editing ? <input type="text" className="text-2xl font-bold text-slate-800 border-b border-indigo-500 outline-none w-full" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /> : <h2 className="text-2xl font-bold text-slate-800">{product.name}</h2>}
+              {editing ? <input type="text" className="text-xl md:text-2xl font-bold text-slate-800 border-b border-indigo-500 outline-none w-full" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /> : <h2 className="text-xl md:text-2xl font-bold text-slate-800">{product.name}</h2>}
               <div className="flex items-center gap-3 mt-2">
                 <span className="text-[10px] font-bold text-slate-400 uppercase">ID: {product.id}</span>
                 {isAdmin && !editing && <button onClick={() => setEditing(true)} className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"><Icons.Pencil /></button>}
@@ -593,7 +587,7 @@ const ProductDetailView: React.FC<{ product: Product; isAdmin: boolean; onClose:
               <h5 className="text-[10px] font-bold text-slate-400 uppercase mb-2">Description</h5>
               {editing ? <textarea className="w-full h-32 px-4 py-2 rounded-xl bg-slate-50 border outline-none text-sm" value={form.desc} onChange={e => setForm({ ...form, desc: e.target.value })} /> : <p className="text-sm text-slate-600 leading-relaxed">{product.description || "No description."}</p>}
             </div>
-            <div className="p-6 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+            <div className="p-4 md:p-6 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Admin Share</p>
                 {editing ? <input type="number" className="text-xl font-bold text-indigo-600 bg-transparent outline-none w-24" value={form.share} onChange={e => setForm({ ...form, share: e.target.value })} /> : <h3 className="text-xl font-bold text-indigo-600">৳{product.adminShare}</h3>}
@@ -623,12 +617,12 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
   const canWithdraw = form.amount && parseFloat(form.amount) >= 200 && parseFloat(form.amount) <= (state.currentUser?.wallet || 0) && !!currentAccountNum;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
       {isEmployee && (
         <div className="lg:col-span-1">
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm sticky top-8">
-            <h3 className="text-lg font-bold mb-6">Withdraw</h3>
-            <div className="mb-6 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+          <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm sticky top-4 md:top-8">
+            <h3 className="text-lg font-bold mb-4 md:mb-6">Withdraw</h3>
+            <div className="mb-4 md:mb-6 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
               <p className="text-[10px] font-bold text-emerald-600 uppercase mb-1">Balance</p>
               <h4 className="text-xl font-bold text-emerald-700">৳{state.currentUser?.wallet.toLocaleString()}</h4>
               <p className="text-[9px] font-medium text-slate-400 mt-2 uppercase tracking-wide">Min Withdraw: ৳200</p>
@@ -654,30 +648,35 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
           </div>
         </div>
       )}
-      <div className={`${isEmployee ? 'lg:col-span-2' : 'lg:col-span-3'} bg-white rounded-2xl border border-slate-200 overflow-hidden`}>
+      <div className={`${isEmployee ? 'lg:col-span-2' : 'lg:col-span-3'} bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm`}>
         <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
           <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">History</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left min-w-[600px]">
             <thead>
               <tr className="bg-white border-b border-slate-100">
                 {!isEmployee && <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Partner</th>}
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Amount</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Method</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase text-center">Amount</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase text-center">Gateway</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Account</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase">Status</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase text-center">Status</th>
                 {!isEmployee && <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {displayRequests.map(r => (
-                <tr key={r.id} className="text-xs">
+                <tr key={r.id} className="text-xs hover:bg-slate-50 transition-colors">
                   {!isEmployee && <td className="px-6 py-4 font-semibold">{r.employeeEmail.split('@')[0]}</td>}
-                  <td className="px-6 py-4 font-bold text-indigo-600">৳{r.amount}</td>
-                  <td className="px-6 py-4 uppercase">{r.method}</td>
-                  <td className="px-6 py-4 font-mono text-slate-500">{r.accountNumber}</td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 font-bold text-indigo-600 text-center">৳{r.amount}</td>
+                  <td className="px-6 py-4 uppercase text-center">{r.method}</td>
+                  <td className="px-6 py-4 font-mono text-slate-500">
+                    <div className="flex flex-col">
+                      <span>{r.accountNumber}</span>
+                      <span className="text-[9px] text-slate-300">{formatDateTime(r.timestamp)}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-center">
                     <span className={`px-2 py-1 rounded-lg font-bold uppercase text-[9px] ${r.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{r.status}</span>
                   </td>
                   {!isEmployee && (
@@ -709,30 +708,30 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
     const empWithdraws = state.withdrawRequests.filter(r => r.employeeId === selectedEmployeeId);
 
     return (
-      <div className="space-y-8">
+      <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right duration-300">
         <button onClick={() => setSelectedEmployeeId(null)} className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors">
           &larr; Back to Team List
         </button>
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex items-center gap-6">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 shadow-sm flex flex-col md:flex-row items-center gap-6">
           {emp?.avatar ? <img src={emp.avatar} className="h-20 w-20 rounded-xl object-cover" /> : <div className="h-20 w-20 bg-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold text-white uppercase">{emp?.email.charAt(0)}</div>}
-          <div>
-            <h3 className="text-2xl font-bold text-slate-800">{emp?.username || emp?.email.split('@')[0]}</h3>
+          <div className="text-center md:text-left">
+            <h3 className="text-xl md:text-2xl font-bold text-slate-800">{emp?.username || emp?.email.split('@')[0]}</h3>
             <p className="text-sm text-slate-400">{emp?.email}</p>
           </div>
-          <div className="ml-auto flex gap-4">
-             <div className="bg-slate-50 px-6 py-4 rounded-xl text-center">
+          <div className="md:ml-auto flex gap-3 md:gap-4 w-full md:w-auto">
+             <div className="flex-1 md:flex-none bg-slate-50 px-4 md:px-6 py-3 md:py-4 rounded-xl text-center">
                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Balance</p>
-                <p className="text-lg font-bold text-emerald-600">৳{emp?.wallet.toLocaleString()}</p>
+                <p className="text-base md:text-lg font-bold text-emerald-600">৳{emp?.wallet.toLocaleString()}</p>
              </div>
-             <div className="bg-slate-50 px-6 py-4 rounded-xl text-center">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Sales Count</p>
-                <p className="text-lg font-bold text-indigo-600">{emp?.totalSalesCount}</p>
+             <div className="flex-1 md:flex-none bg-slate-50 px-4 md:px-6 py-3 md:py-4 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Sales</p>
+                <p className="text-base md:text-lg font-bold text-indigo-600">{emp?.totalSalesCount}</p>
              </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
               <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sale History</h4>
             </div>
@@ -740,8 +739,13 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
               <table className="w-full text-left">
                 <tbody className="divide-y divide-slate-100">
                   {empSales.map(s => (
-                    <tr key={s.id} className="text-xs">
-                      <td className="px-6 py-4 font-medium">{s.productName}</td>
+                    <tr key={s.id} className="text-xs hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 font-medium">
+                        <div className="flex flex-col">
+                           <span>{s.productName}</span>
+                           <span className="text-[9px] text-slate-400">{formatDateTime(s.timestamp)}</span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4 font-bold">৳{s.amount}</td>
                       <td className="px-6 py-4 text-right">
                         <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase font-bold ${s.status === 'completed' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{s.status}</span>
@@ -754,7 +758,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
               <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Withdraw History</h4>
             </div>
@@ -762,8 +766,13 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
               <table className="w-full text-left">
                 <tbody className="divide-y divide-slate-100">
                   {empWithdraws.map(w => (
-                    <tr key={w.id} className="text-xs">
-                      <td className="px-6 py-4 font-medium">{w.method}</td>
+                    <tr key={w.id} className="text-xs hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 font-medium">
+                        <div className="flex flex-col">
+                           <span className="uppercase">{w.method}</span>
+                           <span className="text-[9px] text-slate-400">{formatDateTime(w.timestamp)}</span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4 font-bold">৳{w.amount}</td>
                       <td className="px-6 py-4 text-right">
                         <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase font-bold ${w.status === 'completed' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>{w.status}</span>
@@ -781,8 +790,8 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
   }
 
   return (
-    <div className="space-y-8">
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+    <div className="space-y-6 md:space-y-8">
+      <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 mb-6">Add Team Member</h3>
         <form className="flex flex-col md:flex-row gap-4" onSubmit={e => { e.preventDefault(); onCreate(form.email, form.password); setForm({ email: '', password: '' }); }}>
           <div className="flex-1">
@@ -797,9 +806,9 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {employees.map(e => (
           <div key={e.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative group transition-all hover:border-indigo-400 cursor-pointer" onClick={() => setSelectedEmployeeId(e.id)}>
-            <button onClick={(event) => { event.stopPropagation(); onDelete(e.id); }} className="absolute top-4 right-4 text-slate-200 hover:text-red-500 transition-colors z-10"><Icons.Trash /></button>
+            <button onClick={(event) => { event.stopPropagation(); onDelete(e.id); }} className="absolute top-4 right-4 text-slate-200 hover:text-red-500 transition-colors z-10 p-2"><Icons.Trash /></button>
             <div className="flex items-center gap-4 mb-6">
-              {e.avatar ? <img src={e.avatar} className="h-12 w-12 rounded-xl object-cover" /> : <div className="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center text-lg font-bold text-white uppercase">{e.email.charAt(0)}</div>}
+              {e.avatar ? <img src={e.avatar} className="h-12 w-12 rounded-xl object-cover shadow-sm" /> : <div className="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center text-lg font-bold text-white uppercase">{e.email.charAt(0)}</div>}
               <div>
                 <p className="font-bold text-slate-800">{e.username || e.email.split('@')[0]}</p>
                 <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">{e.email}</p>
@@ -811,12 +820,12 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
                 <p className="text-sm font-bold text-indigo-600">{e.totalSalesCount}</p>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl text-center">
-                <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Earned</p>
+                <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Balance</p>
                 <p className="text-sm font-bold text-emerald-600">৳{e.wallet.toLocaleString()}</p>
               </div>
             </div>
             <div className="mt-4 text-[9px] font-bold text-indigo-600 uppercase text-center opacity-0 group-hover:opacity-100 transition-opacity">
-              View Detailed Insight
+              View Analytics & History
             </div>
           </div>
         ))}
@@ -830,14 +839,14 @@ const AnnouncementView: React.FC<{ state: AppState; onAdd: (t: string, c: string
   const [form, setForm] = useState({ title: '', content: '' });
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className="max-w-3xl mx-auto space-y-6 md:space-y-8">
       {isAdmin && (
-        <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-bold mb-6">Global Broadcast</h3>
+        <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="text-lg font-bold mb-4 md:mb-6">Global Broadcast</h3>
           <form className="space-y-4" onSubmit={e => { e.preventDefault(); onAdd(form.title, form.content); setForm({ title: '', content: '' }); }}>
-            <input type="text" required placeholder="Subject" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none font-semibold" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-            <textarea required placeholder="Message content..." className="w-full h-32 px-4 py-2.5 rounded-xl border border-slate-200 outline-none resize-none text-sm" value={form.content} onChange={e => setForm({ ...form, content: e.target.value })}></textarea>
-            <button className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2">
+            <input type="text" required placeholder="Subject" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none font-semibold shadow-sm" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+            <textarea required placeholder="Message content..." className="w-full h-32 px-4 py-2.5 rounded-xl border border-slate-200 outline-none resize-none text-sm shadow-sm" value={form.content} onChange={e => setForm({ ...form, content: e.target.value })}></textarea>
+            <button className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95">
               <Icons.Speakerphone /> Post Announcement
             </button>
           </form>
@@ -845,12 +854,12 @@ const AnnouncementView: React.FC<{ state: AppState; onAdd: (t: string, c: string
       )}
       <div className="space-y-4">
         {state.announcements.slice().reverse().map(a => (
-          <div key={a.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-indigo-600">
+          <div key={a.id} className="bg-white p-5 md:p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-indigo-600 group hover:shadow-md transition-all">
             <div className="flex justify-between items-center mb-3">
-              <h4 className="font-bold text-slate-800">{a.title}</h4>
-              <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(a.timestamp).toLocaleDateString()}</span>
+              <h4 className="font-bold text-slate-800 text-sm md:text-base">{a.title}</h4>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">{formatDateTime(a.timestamp)}</span>
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed">{a.content}</p>
+            <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{a.content}</p>
           </div>
         ))}
         {state.announcements.length === 0 && <div className="text-center py-12 text-slate-300 font-medium italic text-sm">Station Silence</div>}
@@ -867,8 +876,8 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1024 * 500) {
-        alert('Image too large! Please choose a file smaller than 500KB.');
+      if (file.size > 1024 * 300) {
+        alert('Image too large! Please choose a file smaller than 300KB to fit in browser storage.');
         return;
       }
       const reader = new FileReader();
@@ -879,43 +888,43 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-200 flex flex-col items-center">
-        <div className="relative group cursor-pointer w-32 h-32 mb-6" onClick={() => document.getElementById('av-up')?.click()}>
-          {avatar ? <img src={avatar} className="w-full h-full rounded-2xl object-cover ring-4 ring-slate-50" /> : <div className="w-full h-full bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold">{username.charAt(0) || user.email.charAt(0)}</div>}
-          <div className="absolute inset-0 bg-black/20 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"><Icons.Plus /></div>
+      <div className="bg-white rounded-2xl p-6 md:p-10 shadow-sm border border-slate-200 flex flex-col items-center">
+        <div className="relative group cursor-pointer w-28 h-28 md:w-32 md:h-32 mb-6" onClick={() => document.getElementById('av-up')?.click()}>
+          {avatar ? <img src={avatar} className="w-full h-full rounded-2xl object-cover ring-4 ring-slate-50 shadow-md" /> : <div className="w-full h-full bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold">{username.charAt(0) || user.email.charAt(0)}</div>}
+          <div className="absolute inset-0 bg-black/20 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all backdrop-blur-[1px]"><Icons.Plus /></div>
           <input type="file" id="av-up" className="hidden" accept="image/*" onChange={handleAvatarChange} />
         </div>
         <div className="w-full space-y-4">
           <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email</label>
-            <div className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 text-xs">{user.email}</div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Verified Email</label>
+            <div className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 text-xs truncate">{user.email}</div>
           </div>
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username</label>
-            <input type="text" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-semibold text-sm" value={username} onChange={e => setUsername(e.target.value)} />
+            <input type="text" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-semibold text-sm shadow-sm focus:border-indigo-500 transition-colors" value={username} onChange={e => setUsername(e.target.value)} />
           </div>
         </div>
       </div>
       {user.role === 'employee' && (
-        <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-200">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-6">Payment Gateways</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl p-6 md:p-10 shadow-sm border border-slate-200">
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-6 border-b border-slate-50 pb-2">Payment Gateways</h3>
+          <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">bKash</label>
-              <input type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-semibold" value={paymentAccounts.bKash} onChange={e => setPaymentAccounts({ ...paymentAccounts, bKash: e.target.value })} />
+              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">bKash Account</label>
+              <input type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold shadow-inner" placeholder="017XXXXXXXX" value={paymentAccounts.bKash} onChange={e => setPaymentAccounts({ ...paymentAccounts, bKash: e.target.value })} />
             </div>
             <div>
-              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Nagad</label>
-              <input type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-semibold" value={paymentAccounts.Nagad} onChange={e => setPaymentAccounts({ ...paymentAccounts, Nagad: e.target.value })} />
+              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Nagad Account</label>
+              <input type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold shadow-inner" placeholder="017XXXXXXXX" value={paymentAccounts.Nagad} onChange={e => setPaymentAccounts({ ...paymentAccounts, Nagad: e.target.value })} />
             </div>
             <div>
-              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Rocket</label>
-              <input type="text" className="w-full px-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-semibold" value={paymentAccounts.Rocket} onChange={e => setPaymentAccounts({ ...paymentAccounts, Rocket: e.target.value })} />
+              <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Rocket Account</label>
+              <input type="text" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold shadow-inner" placeholder="017XXXXXXXX" value={paymentAccounts.Rocket} onChange={e => setPaymentAccounts({ ...paymentAccounts, Rocket: e.target.value })} />
             </div>
           </div>
         </div>
       )}
-      <button onClick={() => onUpdate(username, avatar, paymentAccounts)} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold transition-all shadow-md">Update Profile</button>
+      <button onClick={() => onUpdate(username, avatar, paymentAccounts)} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] hover:bg-indigo-700">Update Workspace Profile</button>
     </div>
   );
 };
