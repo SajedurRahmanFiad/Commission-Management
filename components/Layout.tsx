@@ -1,22 +1,25 @@
 
 import React from 'react';
 import { Icons } from '../constants';
-import { Role } from '../types';
+import { Role, User } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
-  userRole: Role;
-  userEmail: string;
+  currentUser: User;
   onLogout: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, userRole, userEmail, onLogout, activeTab, setActiveTab }) => {
+const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, activeTab, setActiveTab }) => {
+  const userRole = currentUser.role;
+  const displayName = currentUser.username || currentUser.email;
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Icons.Dashboard },
-    { id: 'sales', label: 'Sales Management', icon: Icons.Sales },
-    ...(userRole === 'admin' ? [{ id: 'employees', label: 'Employee Hub', icon: Icons.Users }] : []),
+    { id: 'sales', label: 'Sales & Work', icon: Icons.Sales },
+    ...(userRole === 'admin' ? [{ id: 'employees', label: 'Team Hub', icon: Icons.Users }] : []),
+    { id: 'profile', label: 'My Profile', icon: Icons.UserCircle },
   ];
 
   return (
@@ -48,10 +51,18 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userEmail, onLogout
         </nav>
 
         <div className="p-4 border-t border-slate-100">
-          <div className="bg-slate-50 p-3 rounded-lg mb-4">
-            <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Logged in as</p>
-            <p className="text-sm font-medium text-slate-700 truncate">{userEmail}</p>
-            <p className="text-[10px] text-indigo-600 font-bold uppercase mt-1">{userRole}</p>
+          <div className="bg-slate-50 p-3 rounded-lg mb-4 flex items-center gap-3">
+            {currentUser.avatar ? (
+              <img src={currentUser.avatar} alt="Profile" className="h-10 w-10 rounded-full object-cover border-2 border-indigo-200" />
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="overflow-hidden">
+              <p className="text-sm font-bold text-slate-700 truncate">{displayName}</p>
+              <p className="text-[10px] text-indigo-600 font-bold uppercase">{userRole}</p>
+            </div>
           </div>
           <button
             onClick={onLogout}
@@ -67,11 +78,6 @@ const Layout: React.FC<LayoutProps> = ({ children, userRole, userEmail, onLogout
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center px-8 justify-between shrink-0">
           <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab.replace('-', ' ')}</h2>
-          <div className="flex items-center gap-4">
-            <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
-              {userEmail.charAt(0).toUpperCase()}
-            </div>
-          </div>
         </header>
         <div className="flex-1 overflow-y-auto p-8">
           {children}
