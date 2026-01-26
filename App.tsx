@@ -3,54 +3,19 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { User, Sale, Role, AppState, AppNotification, Product, Announcement, WithdrawRequest } from './types';
 import { Icons, ADMIN_FEE_DEFAULT } from './constants';
 import Layout, { formatDateTime } from './components/Layout';
-import { generateApprovalEmail } from './services/geminiService';
-
-const STORAGE_KEY = 'commission_pro_super_v4_final';
-
-// --- Toast Component ---
-const Toast: React.FC<{ message: string; type: 'success' | 'info' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  const styles = {
-    success: 'bg-emerald-600 text-white',
-    info: 'bg-slate-800 text-white',
-    error: 'bg-red-600 text-white'
-  };
-
-  return (
-    <div className={`fixed bottom-6 right-6 left-6 md:left-auto z-[100] px-5 py-3 rounded-xl shadow-2xl flex items-center justify-between gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300 font-medium text-sm ${styles[type]}`}>
-      <div className="flex items-center gap-3">
-        {type === 'success' && <Icons.Check />}
-        <span>{message}</span>
-      </div>
-      <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg transition-colors text-xs">✕</button>
-    </div>
-  );
-};
 
 const App: React.FC = () => {
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
-    return {
-      currentUser: null,
-      users: [
-        { id: '1', email: 'admin@system.com', password: 'admin', role: 'admin', wallet: 0, totalSalesCount: 0, notifications: [] }
-      ],
-      sales: [],
-      products: [
-        { id: 'p1', name: 'Elite Digital Suite', adminShare: 400, description: 'Complete access to our digital tools and resources.', gallery: [] },
-        { id: 'p2', name: 'Founder License', adminShare: 1200, description: 'Exclusive membership for early partners.', gallery: [] }
-      ],
-      announcements: [],
-      withdrawRequests: [],
-      adminWallet: 0,
-    };
+  const [state, setState] = useState<AppState>({
+    currentUser: null,
+    users: [],
+    sales: [],
+    products: [],
+    announcements: [],
+    withdrawRequests: [],
+    adminWallet: 0,
   });
 
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
@@ -61,23 +26,37 @@ const App: React.FC = () => {
     setToasts(prev => [...prev, { id: Math.random().toString(), message, type }]);
   }, []);
 
-  useEffect(() => {
+  // Sync data from DB on mount
+  const refreshData = useCallback(async () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        console.error('Storage quota exceeded.');
-        showToast('Storage Limit! Large images cannot be saved locally.', 'error');
+      const res = await fetch('/api/backend');
+      const data = await res.json();
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          ...data.payload,
+          currentUser: prev.currentUser 
+            ? data.payload.users.find((u: any) => u.id === prev.currentUser?.id) 
+            : null
+        }));
       }
+    } catch (err) {
+      console.error("Failed to sync with MariaDB", err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [state, showToast]);
+  }, []);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const user = state.users.find(u => u.email === loginForm.email && u.password === loginForm.password);
     if (user) {
       setState(prev => ({ ...prev, currentUser: user }));
-      showToast('Welcome back!', 'success');
+      showToast('Authentication Successful', 'success');
     } else {
       setLoginError('Invalid credentials.');
     }
@@ -86,24 +65,35 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setState(prev => ({ ...prev, currentUser: null }));
     setActiveTab('dashboard');
-    setSelectedProductId(null);
-    showToast('Session ended');
+    showToast('Logged out');
   };
 
-  const addNotificationToUser = (userId: string, notif: AppNotification) => {
-    setState(prev => ({
-      ...prev,
-      users: prev.users.map(u => u.id === userId ? { ...u, notifications: [...u.notifications, notif] } : u),
-      currentUser: prev.currentUser?.id === userId ? { ...prev.currentUser, notifications: [...prev.currentUser.notifications, notif] } : prev.currentUser
-    }));
+  const syncStateWithDb = async (action: string, payload: any) => {
+    try {
+      const res = await fetch('/api/backend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, payload })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshData();
+        return true;
+      }
+      showToast(data.error || 'Update failed', 'error');
+      return false;
+    } catch (err) {
+      showToast('Network error', 'error');
+      return false;
+    }
   };
 
-  const createSale = (customerEmail: string, customerPhone: string, amount: number, productId: string, paymentMethod: 'bKash' | 'Nagad' | 'Rocket') => {
+  const createSale = async (customerEmail: string, customerPhone: string, amount: number, productId: string, paymentMethod: 'bKash' | 'Nagad' | 'Rocket') => {
     if (!state.currentUser) return;
     const product = state.products.find(p => p.id === productId);
     if (!product) return;
 
-    const newSale: Sale = {
+    const newSale = {
       id: Math.random().toString(36).substr(2, 9),
       employeeId: state.currentUser.id,
       employeeEmail: state.currentUser.email,
@@ -113,143 +103,77 @@ const App: React.FC = () => {
       productId,
       productName: product.name,
       paymentMethod,
-      status: 'pending',
+      status: 'pending' as const,
       timestamp: new Date().toISOString()
     };
 
-    const notif: AppNotification = {
-      id: Math.random().toString(),
-      message: `Sale alert: ${state.currentUser.username || state.currentUser.email} added ${product.name}`,
-      timestamp: new Date().toISOString(),
-      read: false,
-      type: 'sale'
-    };
-
-    setState(prev => ({ ...prev, sales: [newSale, ...prev.sales] }));
-    const admin = state.users.find(u => u.role === 'admin');
-    if (admin) addNotificationToUser(admin.id, notif);
-    
-    showToast('Sale submitted for review', 'success');
+    const success = await syncStateWithDb('CREATE_SALE', newSale);
+    if (success) showToast('Sale reported to MariaDB', 'success');
   };
 
-  const approveSale = (saleId: string) => {
-    setState(prev => {
-      const sale = prev.sales.find(s => s.id === saleId);
-      if (!sale || sale.status === 'completed') return prev;
-
-      const product = prev.products.find(p => p.id === sale.productId);
-      const adminShare = product ? product.adminShare : ADMIN_FEE_DEFAULT;
-      const employeeCommission = sale.amount - adminShare;
-
-      const updatedSales = prev.sales.map(s => s.id === saleId ? { ...s, status: 'completed' as const, approvedAt: new Date().toISOString() } : s);
-      const updatedUsers = prev.users.map(u => u.id === sale.employeeId ? { ...u, wallet: u.wallet + employeeCommission, totalSalesCount: u.totalSalesCount + 1 } : u);
-
-      return {
-        ...prev,
-        sales: updatedSales,
-        users: updatedUsers,
-        adminWallet: prev.adminWallet + adminShare,
-        currentUser: prev.currentUser?.id === sale.employeeId ? { ...prev.currentUser, wallet: prev.currentUser.wallet + employeeCommission, totalSalesCount: prev.currentUser.totalSalesCount + 1 } : prev.currentUser
-      };
-    });
-    showToast('Transaction approved', 'success');
+  const approveSale = async (saleId: string) => {
+    const success = await syncStateWithDb('APPROVE_SALE', { saleId });
+    if (success) showToast('Sale verified and funds moved', 'success');
   };
 
-  const requestWithdraw = (amount: number, method: 'bKash' | 'Nagad' | 'Rocket', accountNumber: string) => {
-    if (!state.currentUser || state.currentUser.wallet < amount) {
-      showToast('Insufficient balance!', 'error');
-      return;
-    }
-
-    const newReq: WithdrawRequest = {
+  const requestWithdraw = async (amount: number, method: 'bKash' | 'Nagad' | 'Rocket', accountNumber: string) => {
+    const newReq = {
       id: Math.random().toString(36).substr(2, 9),
-      employeeId: state.currentUser.id,
-      employeeEmail: state.currentUser.email,
+      employeeId: state.currentUser?.id,
+      employeeEmail: state.currentUser?.email,
       amount,
       method,
       accountNumber,
-      status: 'pending',
+      status: 'pending' as const,
       timestamp: new Date().toISOString()
     };
 
-    setState(prev => ({
-      ...prev,
-      withdrawRequests: [newReq, ...prev.withdrawRequests],
-      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, wallet: u.wallet - amount } : u),
-      currentUser: { ...prev.currentUser!, wallet: prev.currentUser!.wallet - amount }
-    }));
-
-    const notif: AppNotification = {
-      id: Math.random().toString(),
-      message: `Withdraw Request: ৳${amount} from ${state.currentUser.email}`,
-      timestamp: new Date().toISOString(),
-      read: false,
-      type: 'withdraw'
-    };
-
-    const admin = state.users.find(u => u.role === 'admin');
-    if (admin) addNotificationToUser(admin.id, notif);
-
-    showToast('Withdrawal queued', 'success');
+    const success = await syncStateWithDb('REQUEST_WITHDRAW', newReq);
+    if (success) showToast('Withdrawal queued in DB', 'success');
   };
 
-  const completeWithdraw = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      withdrawRequests: prev.withdrawRequests.map(r => r.id === id ? { ...r, status: 'completed' } : r)
-    }));
-    showToast('Payout finalized', 'success');
+  const completeWithdraw = async (id: string) => {
+    const success = await syncStateWithDb('COMPLETE_WITHDRAW', { id });
+    if (success) showToast('Payout complete', 'success');
   };
 
-  const addAnnouncement = (title: string, content: string) => {
-    const newAnn = { id: Math.random().toString(), title, content, timestamp: new Date().toISOString() };
-    const notif: AppNotification = {
-      id: Math.random().toString(),
-      message: `Announcement: ${title}`,
-      timestamp: new Date().toISOString(),
-      read: false,
-      type: 'announcement'
-    };
-
-    setState(prev => ({ ...prev, announcements: [newAnn, ...prev.announcements] }));
-    state.users.forEach(u => addNotificationToUser(u.id, notif));
-    showToast('Announcement broadcasted', 'info');
+  const addAnnouncement = async (title: string, content: string) => {
+    const payload = { id: Math.random().toString(), title, content, timestamp: new Date().toISOString() };
+    const success = await syncStateWithDb('ADD_ANNOUNCEMENT', payload);
+    if (success) showToast('Broadcast published', 'info');
   };
 
-  const manageProduct = (id: string | null, product: Partial<Product> | null) => {
+  const manageProduct = async (id: string | null, product: Partial<Product> | null) => {
     if (!id && product) {
-      const newP = { id: Math.random().toString(36).substr(2, 9), name: product.name!, adminShare: product.adminShare!, description: product.description || '', gallery: product.gallery || [] };
-      setState(prev => ({ ...prev, products: [...prev.products, newP] }));
-      showToast('Product launched', 'success');
+      const newP = { id: Math.random().toString(36).substr(2, 9), ...product, gallery: product.gallery || [] };
+      const success = await syncStateWithDb('ADD_PRODUCT', newP);
+      if (success) showToast('Product stored in MariaDB', 'success');
     } else if (id && product) {
-      setState(prev => ({ ...prev, products: prev.products.map(p => p.id === id ? { ...p, ...product } : p) }));
-      showToast('Product updated', 'success');
+      const success = await syncStateWithDb('UPDATE_PRODUCT', { id, ...product });
+      if (success) showToast('Product updated', 'success');
     } else if (id && !product) {
-      if (window.confirm("Delete this product permanently?")) {
-        setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
-        setSelectedProductId(null);
-        showToast('Product removed', 'error');
+      if (window.confirm("Delete this product?")) {
+        const success = await syncStateWithDb('DELETE_PRODUCT', { id });
+        if (success) {
+          setSelectedProductId(null);
+          showToast('Product removed', 'error');
+        }
       }
     }
   };
 
-  const updateProfile = (username: string, avatar: string, paymentAccounts: any) => {
-    setState(prev => ({
-      ...prev,
-      currentUser: { ...prev.currentUser!, username, avatar, paymentAccounts },
-      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, username, avatar, paymentAccounts } : u)
-    }));
-    showToast('Identity updated', 'success');
+  const updateProfile = async (username: string, avatar: string, paymentAccounts: any) => {
+    const success = await syncStateWithDb('UPDATE_PROFILE', { userId: state.currentUser?.id, username, avatar, paymentAccounts });
+    if (success) showToast('Profile synced', 'success');
   };
 
-  const clearNotifications = () => {
-    if (!state.currentUser) return;
-    setState(prev => ({
-      ...prev,
-      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, notifications: u.notifications.map(n => ({ ...n, read: true })) } : u),
-      currentUser: { ...prev.currentUser!, notifications: prev.currentUser!.notifications.map(n => ({ ...n, read: true })) }
-    }));
+  const clearNotifications = async () => {
+    await syncStateWithDb('CLEAR_NOTIFICATIONS', { userId: state.currentUser?.id });
   };
+
+  if (isLoading) {
+    return <div className="h-screen flex items-center justify-center bg-slate-50 text-indigo-600 font-bold">Synchronizing MariaDB...</div>;
+  }
 
   if (!state.currentUser) {
     return (
@@ -258,7 +182,7 @@ const App: React.FC = () => {
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6 shadow-lg shadow-indigo-200">C</div>
             <h2 className="text-2xl font-bold text-slate-800 tracking-tight">CommishPro</h2>
-            <p className="text-sm text-slate-400 mt-2 font-medium">Enterprise Sales Command</p>
+            <p className="text-sm text-slate-400 mt-2 font-medium">MariaDB Secure Access</p>
           </div>
           <form className="space-y-5" onSubmit={handleLogin}>
             {loginError && <div className="text-red-500 text-xs text-center font-bold bg-red-50 p-3 rounded-xl border border-red-100">{loginError}</div>}
@@ -306,19 +230,44 @@ const App: React.FC = () => {
           )
         )}
         {activeTab === 'withdraw' && <WithdrawView state={state} onWithdraw={requestWithdraw} onComplete={completeWithdraw} />}
-        {activeTab === 'employees' && state.currentUser.role === 'admin' && <TeamHubView state={state} onCreate={(e, p) => {
-          const newUser: User = { id: Math.random().toString(36).substr(2, 9), email: e, password: p, role: 'employee', wallet: 0, totalSalesCount: 0, notifications: [] };
-          setState(prev => ({ ...prev, users: [...prev.users, newUser] }));
-          showToast('Team member added', 'success');
-        }} onDelete={(id) => setState(p => ({ ...p, users: p.users.filter(u => u.id !== id) }))} />}
+        {activeTab === 'employees' && state.currentUser.role === 'admin' && <TeamHubView state={state} onCreate={async (e, p) => {
+          const newUser = { id: Math.random().toString(36).substr(2, 9), email: e, password: p, role: 'employee' as const, wallet: 0, totalSalesCount: 0, notifications: [] };
+          await syncStateWithDb('ADD_EMPLOYEE', newUser);
+        }} onDelete={async (id) => {
+           if(window.confirm("Remove employee from MariaDB?")) {
+             await syncStateWithDb('DELETE_EMPLOYEE', { id });
+           }
+        }} />}
         {activeTab === 'announcements' && <AnnouncementView state={state} onAdd={addAnnouncement} />}
         {activeTab === 'profile' && <ProfileView user={state.currentUser} onUpdate={updateProfile} />}
       </div>
 
-      {toasts.map(t => (
-        <Toast key={t.id} message={t.message} type={t.type} onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))} />
-      ))}
+      {/* FIXED: Added a container and implementation for Toast notifications */}
+      <div className="fixed bottom-0 right-0 p-6 z-[9999] flex flex-col gap-3 pointer-events-none">
+        {toasts.map(t => (
+          <Toast key={t.id} message={t.message} type={t.type} onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))} />
+        ))}
+      </div>
     </Layout>
+  );
+};
+
+// --- Toast Component Fix ---
+const Toast: React.FC<{ message: string; type: 'success' | 'info' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const bgColor = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-red-600' : 'bg-indigo-600';
+
+  return (
+    <div className={`${bgColor} text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-right-full duration-300 pointer-events-auto`}>
+      <div className="flex-1 font-bold text-sm tracking-tight">{message}</div>
+      <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
+        <Icons.X />
+      </button>
+    </div>
   );
 };
 
@@ -327,14 +276,13 @@ const App: React.FC = () => {
 const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void; onCreateSale: (e: string, p: string, a: number, pr: string, m: any) => void }> = ({ state, onApprove, onCreateSale }) => {
   const [showModal, setShowModal] = useState(false);
   const isEmployee = state.currentUser?.role === 'employee';
-  const currentUserData = state.users.find(u => u.id === state.currentUser?.id);
   const displaySales = isEmployee ? state.sales.filter(s => s.employeeId === state.currentUser?.id) : state.sales;
 
   const [formData, setFormData] = useState({ email: '', phone: '', amount: '', productId: '', method: 'bKash' as any });
 
   const stats = isEmployee ? [
-    { label: 'Net Wallet', val: `৳${currentUserData?.wallet.toLocaleString()}`, color: 'text-emerald-600', icon: Icons.Wallet },
-    { label: 'Sales Done', val: currentUserData?.totalSalesCount || 0, color: 'text-indigo-600', icon: Icons.Check },
+    { label: 'Net Wallet', val: `৳${state.currentUser?.wallet.toLocaleString()}`, color: 'text-emerald-600', icon: Icons.Wallet },
+    { label: 'Sales Done', val: state.currentUser?.totalSalesCount || 0, color: 'text-indigo-600', icon: Icons.Check },
     { label: 'Pending', val: displaySales.filter(s => s.status === 'pending').length, color: 'text-amber-600', icon: Icons.Dashboard }
   ] : [
     { label: 'Total Volume', val: `৳${state.adminWallet.toLocaleString()}`, color: 'text-emerald-600', icon: Icons.Wallet },
@@ -408,14 +356,13 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
                 </tr>
               ))}
               {displaySales.length === 0 && (
-                <tr><td colSpan={10} className="p-16 text-center text-slate-300 text-sm font-medium italic">Station Silence - No transactions recorded yet</td></tr>
+                <tr><td colSpan={10} className="p-16 text-center text-slate-300 text-sm font-medium italic font-sans">No transactions recorded in MariaDB</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Responsive New Sale Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-300">
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md" onClick={() => setShowModal(false)}></div>
@@ -493,7 +440,6 @@ const ProductListView: React.FC<{ state: AppState; isAdmin: boolean; onSelect: (
               ) : (
                 <Icons.Tag />
               )}
-              <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/5 transition-all duration-300"></div>
             </div>
             <div className="p-5">
               <h4 className="font-bold text-slate-800 text-sm md:text-base group-hover:text-indigo-600 transition-colors">{p.name}</h4>
@@ -644,7 +590,6 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
               <h4 className="text-2xl font-bold text-emerald-700 tracking-tight">৳{state.currentUser?.wallet.toLocaleString()}</h4>
               <div className="flex justify-between items-center mt-3 pt-3 border-t border-emerald-100/50">
                 <p className="text-[9px] font-bold text-emerald-400 uppercase tracking-wide">Minimum: ৳200</p>
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
               </div>
             </div>
             <form className="space-y-4" onSubmit={e => { e.preventDefault(); onWithdraw(parseFloat(form.amount), form.method, currentAccountNum); setForm({ ...form, amount: '' }); }}>
@@ -708,9 +653,6 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
                   )}
                 </tr>
               ))}
-              {displayRequests.length === 0 && (
-                <tr><td colSpan={10} className="p-20 text-center text-slate-300 font-medium text-xs uppercase tracking-widest italic">No financial movements found</td></tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -727,8 +669,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
   if (selectedEmployeeId) {
     const emp = state.users.find(u => u.id === selectedEmployeeId);
     const empSales = state.sales.filter(s => s.employeeId === selectedEmployeeId);
-    const empWithdraws = state.withdrawRequests.filter(r => r.employeeId === selectedEmployeeId);
-
+    
     return (
       <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right-4 duration-500 ease-out">
         <button onClick={() => setSelectedEmployeeId(null)} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-indigo-600 transition-all p-2 hover:bg-white rounded-xl shadow-sm border border-transparent hover:border-indigo-100">
@@ -780,34 +721,6 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
                       </td>
                     </tr>
                   ))}
-                  {empSales.length === 0 && <tr><td className="p-16 text-center text-slate-300 italic font-medium">Zero activity detected.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-              <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Withdraw Records</h4>
-            </div>
-            <div className="max-h-96 overflow-y-auto scrollbar-hide">
-              <table className="w-full text-left">
-                <tbody className="divide-y divide-slate-100">
-                  {empWithdraws.map(w => (
-                    <tr key={w.id} className="text-xs hover:bg-slate-50 transition-colors duration-150">
-                      <td className="px-6 py-4 font-bold text-slate-700">
-                        <div className="flex flex-col">
-                           <span className="uppercase text-slate-400 text-[10px] tracking-wider">{w.method}</span>
-                           <span className="text-[9px] text-slate-300 font-medium mt-0.5">{formatDateTime(w.timestamp)}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-bold text-emerald-600 text-center">৳{w.amount}</td>
-                      <td className="px-6 py-4 text-right">
-                        <span className={`px-2 py-0.5 rounded-lg text-[9px] uppercase font-bold border ${w.status === 'completed' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-amber-600 bg-amber-50 border-amber-100'}`}>{w.status}</span>
-                      </td>
-                    </tr>
-                  ))}
-                  {empWithdraws.length === 0 && <tr><td className="p-16 text-center text-slate-300 italic font-medium">No payout requests found.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -852,9 +765,6 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
                 <p className="text-base font-bold text-emerald-600 tracking-tight">৳{e.wallet.toLocaleString()}</p>
               </div>
             </div>
-            <div className="mt-4 text-[9px] font-bold text-indigo-400 uppercase text-center opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 tracking-widest">
-              View Detailed Analytics
-            </div>
           </div>
         ))}
       </div>
@@ -890,7 +800,6 @@ const AnnouncementView: React.FC<{ state: AppState; onAdd: (t: string, c: string
         </div>
       )}
       <div className="space-y-5">
-        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] text-center mb-8">Intelligence Feed</h4>
         {state.announcements.slice().reverse().map(a => (
           <div key={a.id} className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm border-l-[6px] border-l-indigo-600 group hover:shadow-md transition-all animate-in slide-in-from-bottom-2 duration-300">
             <div className="flex justify-between items-start mb-4">
@@ -900,7 +809,6 @@ const AnnouncementView: React.FC<{ state: AppState; onAdd: (t: string, c: string
             <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap font-medium">{a.content}</p>
           </div>
         ))}
-        {state.announcements.length === 0 && <div className="text-center py-24 text-slate-300 font-bold uppercase tracking-[0.3em] text-[10px]">Station Silence</div>}
       </div>
     </div>
   );
@@ -914,10 +822,6 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1024 * 300) {
-        alert('Image too large! Use a file under 300KB.');
-        return;
-      }
       const reader = new FileReader();
       reader.onloadend = () => setAvatar(reader.result as string);
       reader.readAsDataURL(file);
@@ -956,7 +860,7 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
       </div>
       
       {user.role === 'employee' && (
-        <div className="bg-white rounded-3xl p-8 md:p-10 shadow-lg border border-slate-200 animate-in slide-in-from-bottom-4 duration-500 delay-100">
+        <div className="bg-white rounded-3xl p-8 md:p-10 shadow-lg border border-slate-200">
           <h3 className="text-[12px] font-bold text-slate-800 uppercase tracking-[0.2em] mb-8 border-b border-slate-100 pb-4 flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-indigo-600"></div>
             Financial Gateways
@@ -964,15 +868,15 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">bKash</label>
-              <input type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold shadow-inner focus:bg-white focus:border-indigo-500 transition-all" placeholder="01XXXXXXXXX" value={paymentAccounts.bKash} onChange={e => setPaymentAccounts({ ...paymentAccounts, bKash: e.target.value })} />
+              <input type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold shadow-inner" placeholder="01XXXXXXXXX" value={paymentAccounts.bKash} onChange={e => setPaymentAccounts({ ...paymentAccounts, bKash: e.target.value })} />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Nagad</label>
-              <input type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold shadow-inner focus:bg-white focus:border-indigo-500 transition-all" placeholder="01XXXXXXXXX" value={paymentAccounts.Nagad} onChange={e => setPaymentAccounts({ ...paymentAccounts, Nagad: e.target.value })} />
+              <input type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold shadow-inner" placeholder="01XXXXXXXXX" value={paymentAccounts.Nagad} onChange={e => setPaymentAccounts({ ...paymentAccounts, Nagad: e.target.value })} />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-1">Rocket</label>
-              <input type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold shadow-inner focus:bg-white focus:border-indigo-500 transition-all" placeholder="01XXXXXXXXX" value={paymentAccounts.Rocket} onChange={e => setPaymentAccounts({ ...paymentAccounts, Rocket: e.target.value })} />
+              <input type="text" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold shadow-inner" placeholder="01XXXXXXXXX" value={paymentAccounts.Rocket} onChange={e => setPaymentAccounts({ ...paymentAccounts, Rocket: e.target.value })} />
             </div>
           </div>
         </div>
@@ -982,7 +886,7 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
         onClick={() => onUpdate(username, avatar, paymentAccounts)} 
         className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-xl shadow-indigo-100 active:scale-[0.98] hover:bg-indigo-700 transition-all duration-300"
       >
-        Synchronize Profile
+        Synchronize MariaDB Profile
       </button>
     </div>
   );
