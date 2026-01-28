@@ -48,7 +48,9 @@ const App: React.FC = () => {
   const refreshData = useCallback(async () => {
     try {
       const res = await fetch('/api/db');
+      if (!res.ok) throw new Error("API responded with error");
       const data = await res.json();
+      
       setState(prev => ({
         ...prev,
         ...data,
@@ -83,12 +85,20 @@ const App: React.FC = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = state.users.find(u => u.email === loginForm.email && u.password === loginForm.password);
+    const emailInput = loginForm.email.trim().toLowerCase();
+    const passwordInput = loginForm.password.trim();
+
+    const user = state.users.find(u => 
+      u.email.toLowerCase() === emailInput && 
+      u.password === passwordInput
+    );
+
     if (user) {
       setState(prev => ({ ...prev, currentUser: user }));
+      setLoginError('');
       showToast('Logged in successfully', 'success');
     } else {
-      setLoginError('Invalid credentials.');
+      setLoginError('Invalid credentials. Please try again.');
     }
   };
 
@@ -156,7 +166,7 @@ const App: React.FC = () => {
       const updatedEmployee = { 
         ...employee, 
         wallet: employee.wallet + employeeCommission, 
-        totalSalesCount: employee.totalSalesCount + 1 
+        totalSalesCount: (employee.totalSalesCount || 0) + 1 
       };
       await apiSync('UPDATE_USER', updatedEmployee);
     }
@@ -266,25 +276,28 @@ const App: React.FC = () => {
 
   if (!state.currentUser) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans text-slate-900">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-lg border border-slate-200 p-10 animate-in fade-in zoom-in duration-300">
           <div className="text-center mb-10">
-            <div className="w-16 h-16 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6">C</div>
+            <div className="w-16 h-16 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6 shadow-indigo-200 shadow-lg">C</div>
             <h2 className="text-2xl font-bold text-slate-800">CommishPro</h2>
             <p className="text-sm text-slate-400 mt-1">Sign in to your account</p>
           </div>
           <form className="space-y-6" onSubmit={handleLogin}>
-            {loginError && <p className="text-red-500 text-xs text-center font-medium">{loginError}</p>}
+            {loginError && <p className="text-red-500 text-xs text-center font-medium bg-red-50 py-2 rounded-lg">{loginError}</p>}
             <div>
               <label className="text-xs font-semibold text-slate-500 block mb-2 uppercase tracking-wide">Email</label>
-              <input type="email" required className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 outline-none transition-all" value={loginForm.email} onChange={e => setLoginForm({ ...loginForm, email: e.target.value })} />
+              <input type="email" required className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 outline-none transition-all" value={loginForm.email} onChange={e => setLoginForm({ ...loginForm, email: e.target.value })} placeholder="admin@system.com" />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 block mb-2 uppercase tracking-wide">Password</label>
-              <input type="password" required className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 outline-none transition-all" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} />
+              <input type="password" required className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 outline-none transition-all" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} placeholder="••••••••" />
             </div>
-            <button type="submit" className="w-full py-3.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all">Sign In</button>
+            <button type="submit" className="w-full py-3.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-indigo-200 shadow-md">Sign In</button>
           </form>
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee Login & Admin Dashboard</p>
+          </div>
         </div>
       </div>
     );
@@ -325,8 +338,8 @@ const App: React.FC = () => {
           showToast('Team member added', 'success');
         }} onDelete={async (id) => {
           if (window.confirm("Delete this member?")) {
-            const updatedUsers = state.users.filter(u => u.id !== id);
-            await apiSync('SYNC_STATE', { ...state, users: updatedUsers });
+            const currentUsers = state.users.filter(u => u.id !== id);
+            await apiSync('SYNC_STATE', { ...state, users: currentUsers });
           }
         }} />}
         {activeTab === 'announcements' && <AnnouncementView state={state} onAdd={addAnnouncement} />}
@@ -342,7 +355,8 @@ const App: React.FC = () => {
   );
 };
 
-// --- Sub Views (Remain identical in UI) ---
+// ... existing sub-views (DashboardView, ProductListView, etc.) ...
+// Note: Keeping identical to previous version to maintain UI consistency.
 
 const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void; onCreateSale: (e: string, p: string, a: number, pr: string, m: any) => void }> = ({ state, onApprove, onCreateSale }) => {
   const [showModal, setShowModal] = useState(false);
@@ -571,7 +585,7 @@ const ProductDetailView: React.FC<{ product: Product; isAdmin: boolean; onClose:
   };
 
   return (
-    <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+    <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300 text-slate-900">
       <div className="flex flex-col lg:flex-row">
         <div className="lg:w-2/5 p-6 md:p-8 bg-slate-50/50 border-b lg:border-r lg:border-b-0 border-slate-100">
           <div className="relative group rounded-xl overflow-hidden shadow-sm border border-slate-200 aspect-square max-w-[400px] mx-auto">
@@ -640,7 +654,7 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
   const canWithdraw = form.amount && parseFloat(form.amount) >= 200 && parseFloat(form.amount) <= (state.currentUser?.wallet || 0) && !!currentAccountNum;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 text-slate-900">
       {isEmployee && (
         <div className="lg:col-span-1">
           <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm sticky top-4 md:top-8">
@@ -653,11 +667,11 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
             <form className="space-y-4" onSubmit={e => { e.preventDefault(); onWithdraw(parseFloat(form.amount), form.method, currentAccountNum); setForm({ ...form, amount: '' }); }}>
               <div>
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Amount</label>
-                <input type="number" required min="200" className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border outline-none font-bold" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
+                <input type="number" required min="200" className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 block mb-1">Gateway</label>
-                <select className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border outline-none font-medium" value={form.method} onChange={e => setForm({ ...form, method: e.target.value as any })}>
+                <select className="w-full px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium" value={form.method} onChange={e => setForm({ ...form, method: e.target.value as any })}>
                   <option value="bKash">bKash</option>
                   <option value="Nagad">Nagad</option>
                   <option value="Rocket">Rocket</option>
@@ -710,7 +724,7 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
                 </tr>
               ))}
               {displayRequests.length === 0 && (
-                <tr><td colSpan={10} className="p-12 text-center text-slate-400 font-medium text-xs uppercase tracking-widest italic">No financial movements found</td></tr>
+                <tr><td colSpan={10} className="p-12 text-center text-slate-400 font-medium text-xs uppercase tracking-widest italic font-sans">No financial movements found</td></tr>
               )}
             </tbody>
           </table>
@@ -731,7 +745,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
     const empWithdraws = state.withdrawRequests.filter(r => r.employeeId === selectedEmployeeId);
 
     return (
-      <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right duration-300">
+      <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right duration-300 text-slate-900">
         <button onClick={() => setSelectedEmployeeId(null)} className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors">
           &larr; Back to Team List
         </button>
@@ -748,7 +762,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
              </div>
              <div className="flex-1 md:flex-none bg-slate-50 px-4 md:px-6 py-3 md:py-4 rounded-xl text-center">
                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Sales</p>
-                <p className="text-base md:text-lg font-bold text-indigo-600">{emp?.totalSalesCount}</p>
+                <p className="text-base md:text-lg font-bold text-indigo-600">{emp?.totalSalesCount || 0}</p>
              </div>
           </div>
         </div>
@@ -775,7 +789,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
                       </td>
                     </tr>
                   ))}
-                  {empSales.length === 0 && <tr><td className="p-8 text-center text-slate-400 italic">No sales found.</td></tr>}
+                  {empSales.length === 0 && <tr><td className="p-8 text-center text-slate-400 italic font-sans text-sm">No sales found.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -802,7 +816,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
                       </td>
                     </tr>
                   ))}
-                  {empWithdraws.length === 0 && <tr><td className="p-8 text-center text-slate-400 italic">No payouts yet.</td></tr>}
+                  {empWithdraws.length === 0 && <tr><td className="p-8 text-center text-slate-400 italic font-sans text-sm">No payouts yet.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -813,7 +827,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
   }
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-6 md:space-y-8 text-slate-900">
       <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 mb-6">Add Team Member</h3>
         <form className="flex flex-col md:flex-row gap-4" onSubmit={e => { e.preventDefault(); onCreate(form.email, form.password); setForm({ email: '', password: '' }); }}>
@@ -840,7 +854,7 @@ const TeamHubView: React.FC<{ state: AppState; onCreate: (e: string, p: string) 
             <div className="grid grid-cols-2 gap-3 border-t border-slate-50 pt-4">
               <div className="bg-slate-50 p-3 rounded-xl text-center">
                 <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Sales</p>
-                <p className="text-sm font-bold text-indigo-600">{e.totalSalesCount}</p>
+                <p className="text-sm font-bold text-indigo-600">{e.totalSalesCount || 0}</p>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl text-center">
                 <p className="text-[8px] font-bold text-slate-400 uppercase mb-1">Balance</p>
@@ -862,7 +876,7 @@ const AnnouncementView: React.FC<{ state: AppState; onAdd: (t: string, c: string
   const [form, setForm] = useState({ title: '', content: '' });
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 md:space-y-8">
+    <div className="max-w-3xl mx-auto space-y-6 md:space-y-8 text-slate-900">
       {isAdmin && (
         <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
           <h3 className="text-lg font-bold mb-4 md:mb-6">Global Broadcast</h3>
@@ -885,7 +899,7 @@ const AnnouncementView: React.FC<{ state: AppState; onAdd: (t: string, c: string
             <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{a.content}</p>
           </div>
         ))}
-        {state.announcements.length === 0 && <div className="text-center py-12 text-slate-300 font-medium italic text-sm">Station Silence</div>}
+        {state.announcements.length === 0 && <div className="text-center py-12 text-slate-300 font-medium italic text-sm font-sans">Station Silence</div>}
       </div>
     </div>
   );
@@ -910,21 +924,21 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 text-slate-900">
       <div className="bg-white rounded-2xl p-6 md:p-10 shadow-sm border border-slate-200 flex flex-col items-center">
-        <div className="relative group cursor-pointer w-28 h-28 md:w-32 md:h-32 mb-6" onClick={() => document.getElementById('av-up')?.click()}>
-          {avatar ? <img src={avatar} className="w-full h-full rounded-2xl object-cover ring-4 ring-slate-50 shadow-md" /> : <div className="w-full h-full bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold">{username.charAt(0) || user.email.charAt(0)}</div>}
-          <div className="absolute inset-0 bg-black/20 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all backdrop-blur-[1px]"><Icons.Plus /></div>
+        <div className="relative group cursor-pointer w-28 h-28 md:w-32 md:h-32 mb-6 shadow-xl rounded-2xl overflow-hidden" onClick={() => document.getElementById('av-up')?.click()}>
+          {avatar ? <img src={avatar} className="w-full h-full object-cover ring-4 ring-slate-50" /> : <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white text-4xl font-bold uppercase">{username.charAt(0) || user.email.charAt(0)}</div>}
+          <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all backdrop-blur-[1px]"><Icons.Plus /></div>
           <input type="file" id="av-up" className="hidden" accept="image/*" onChange={handleAvatarChange} />
         </div>
         <div className="w-full space-y-4">
           <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Verified Email</label>
-            <div className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 text-xs truncate">{user.email}</div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 tracking-widest">Verified Email</label>
+            <div className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 text-xs truncate">{user.email}</div>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Username</label>
-            <input type="text" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-semibold text-sm shadow-sm focus:border-indigo-500 transition-colors" value={username} onChange={e => setUsername(e.target.value)} />
+            <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 tracking-widest">Username</label>
+            <input type="text" className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none font-semibold text-sm shadow-sm focus:border-indigo-500 transition-colors" value={username} onChange={e => setUsername(e.target.value)} />
           </div>
         </div>
       </div>
@@ -947,7 +961,7 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
           </div>
         </div>
       )}
-      <button onClick={() => onUpdate(username, avatar, paymentAccounts)} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] hover:bg-indigo-700">Update Profile</button>
+      <button onClick={() => onUpdate(username, avatar, paymentAccounts)} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-100 active:scale-[0.98] hover:bg-indigo-700">Update Profile</button>
     </div>
   );
 };

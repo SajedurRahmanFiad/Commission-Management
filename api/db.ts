@@ -3,12 +3,29 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
 
-// Use path.resolve('database') to ensure the path is correct relative to the project root.
+// Use path.resolve() to consistently find the project root. 
+// This resolves the 'database' directory relative to the current working directory, 
+// avoiding the TypeScript error regarding the process.cwd() method availability.
 const DB_PATH = path.resolve('database');
+
+// Define default admin for recovery/seeding
+const DEFAULT_ADMIN = {
+  id: "1",
+  email: "admin@system.com",
+  password: "admin",
+  role: "admin",
+  wallet: 0,
+  totalSalesCount: 0,
+  notifications: []
+};
 
 // Ensure directory exists
 if (!fs.existsSync(DB_PATH)) {
-  fs.mkdirSync(DB_PATH, { recursive: true });
+  try {
+    fs.mkdirSync(DB_PATH, { recursive: true });
+  } catch (e) {
+    console.error("Critical: Could not create database directory", e);
+  }
 }
 
 const readFile = (filename: string) => {
@@ -16,15 +33,21 @@ const readFile = (filename: string) => {
   if (!fs.existsSync(filePath)) return [];
   try {
     const data = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(data || '[]');
+    const parsed = JSON.parse(data || '[]');
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
+    console.error(`Error reading ${filename}:`, e);
     return [];
   }
 };
 
 const writeFile = (filename: string, data: any) => {
   const filePath = path.join(DB_PATH, `${filename}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error(`Error writing ${filename}:`, e);
+  }
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -32,7 +55,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (method === 'GET') {
     try {
-      const users = readFile('users');
+      let users = readFile('users');
+      
+      // Auto-Seed: If no users exist, provide and save the default admin.
+      if (users.length === 0) {
+        users = [DEFAULT_ADMIN];
+        writeFile('users', users);
+        console.log("Database seeded with default admin.");
+      }
+
       const sales = readFile('sales');
       const products = readFile('products');
       const announcements = readFile('announcements');
@@ -55,6 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         adminWallet
       });
     } catch (error) {
+      console.error("GET DB Error:", error);
       return res.status(500).json({ error: 'Failed to read database' });
     }
   }
@@ -84,7 +116,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             currentUsers[userIndex] = payload;
             writeFile('users', currentUsers);
           } else {
-            writeFile('users', [...currentUsers, payload]);
+            // Check for duplicate emails before adding
+            const emailExists = currentUsers.some((u: any) => u.email.toLowerCase() === payload.email.toLowerCase());
+            if (!emailExists) {
+              writeFile('users', [...currentUsers, payload]);
+            } else {
+               // If it exists but index was -1, maybe ID changed? Update by email.
+               const idxByEmail = currentUsers.findIndex((u: any) => u.email.toLowerCase() === payload.email.toLowerCase());
+               currentUsers[idxByEmail] = payload;
+               writeFile('users', currentUsers);
+            }
           }
           break;
           
@@ -112,7 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       return res.status(200).json({ success: true });
     } catch (error) {
-      console.error("DB Write Error:", error);
+      console.error("POST DB Write Error:", error);
       return res.status(500).json({ error: 'Failed to write to database' });
     }
   }
