@@ -12,7 +12,10 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "@google/genai": "^1.38.0",
-    "@supabase/supabase-js": "^2.93.2"
+    "@supabase/supabase-js": "^2.93.2",
+    "path": "^0.12.7",
+    "next": "^16.1.6",
+    "fs": "^0.0.1-security"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

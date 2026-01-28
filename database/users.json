@@ -1,0 +1,12 @@
+
+[
+  {
+    "id": "1",
+    "email": "admin@system.com",
+    "password": "admin",
+    "role": "admin",
+    "wallet": 0,
+    "totalSalesCount": 0,
+    "notifications": []
+  }
+]

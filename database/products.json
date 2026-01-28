@@ -1,0 +1,17 @@
+
+[
+  {
+    "id": "p1",
+    "name": "Elite Digital Suite",
+    "adminShare": 400,
+    "description": "Complete access to our digital tools.",
+    "gallery": []
+  },
+  {
+    "id": "p2",
+    "name": "Founder License",
+    "adminShare": 1200,
+    "description": "Exclusive membership for early partners.",
+    "gallery": []
+  }
+]

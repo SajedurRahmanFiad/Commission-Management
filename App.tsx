@@ -4,8 +4,6 @@ import { User, Sale, Role, AppState, AppNotification, Product, Announcement, Wit
 import { Icons, ADMIN_FEE_DEFAULT } from './constants';
 import Layout, { formatDateTime } from './components/Layout';
 
-const STORAGE_KEY = 'commission_pro_local_v1';
-
 // --- Toast Component ---
 const Toast: React.FC<{ message: string; type: 'success' | 'info' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
   useEffect(() => {
@@ -26,33 +24,17 @@ const Toast: React.FC<{ message: string; type: 'success' | 'info' | 'error'; onC
 };
 
 const App: React.FC = () => {
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
-    return {
-      currentUser: null,
-      users: [
-        { 
-          id: '1', 
-          email: 'admin@system.com', 
-          password: 'admin', 
-          role: 'admin', 
-          wallet: 0, 
-          totalSalesCount: 0, 
-          notifications: [] 
-        }
-      ],
-      sales: [],
-      products: [
-        { id: 'p1', name: 'Elite Digital Suite', adminShare: 400, description: 'Complete access to our digital tools.', gallery: [] },
-        { id: 'p2', name: 'Founder License', adminShare: 1200, description: 'Exclusive membership for early partners.', gallery: [] }
-      ],
-      announcements: [],
-      withdrawRequests: [],
-      adminWallet: 0,
-    };
+  const [state, setState] = useState<AppState>({
+    currentUser: null,
+    users: [],
+    sales: [],
+    products: [],
+    announcements: [],
+    withdrawRequests: [],
+    adminWallet: 0,
   });
 
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
@@ -63,10 +45,41 @@ const App: React.FC = () => {
     setToasts(prev => [...prev, { id: Math.random().toString(), message, type }]);
   }, []);
 
-  // Persist state to local storage
+  const refreshData = useCallback(async () => {
+    try {
+      const res = await fetch('/api/db');
+      const data = await res.json();
+      setState(prev => ({
+        ...prev,
+        ...data,
+        currentUser: prev.currentUser 
+          ? data.users.find((u: User) => u.id === prev.currentUser?.id) 
+          : null
+      }));
+    } catch (err) {
+      console.error("Database connection failed", err);
+      showToast("Could not connect to database files", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [showToast]);
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    refreshData();
+  }, [refreshData]);
+
+  const apiSync = async (action: string, payload: any) => {
+    try {
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, payload })
+      });
+      await refreshData();
+    } catch (err) {
+      showToast("Failed to sync with database", "error");
+    }
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,15 +99,14 @@ const App: React.FC = () => {
     showToast('Logged out');
   };
 
-  const addNotificationToUser = (userId: string, notif: AppNotification) => {
-    setState(prev => ({
-      ...prev,
-      users: prev.users.map(u => u.id === userId ? { ...u, notifications: [...u.notifications, notif] } : u),
-      currentUser: prev.currentUser?.id === userId ? { ...prev.currentUser, notifications: [...prev.currentUser.notifications, notif] } : prev.currentUser
-    }));
+  const addNotificationToUser = async (userId: string, notif: AppNotification) => {
+    const user = state.users.find(u => u.id === userId);
+    if (!user) return;
+    const updatedUser = { ...user, notifications: [...user.notifications, notif] };
+    await apiSync('UPDATE_USER', updatedUser);
   };
 
-  const createSale = (customerEmail: string, customerPhone: string, amount: number, productId: string, paymentMethod: 'bKash' | 'Nagad' | 'Rocket') => {
+  const createSale = async (customerEmail: string, customerPhone: string, amount: number, productId: string, paymentMethod: 'bKash' | 'Nagad' | 'Rocket') => {
     if (!state.currentUser) return;
     const product = state.products.find(p => p.id === productId);
     if (!product) return;
@@ -113,11 +125,11 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
 
-    setState(prev => ({ ...prev, sales: [newSale, ...prev.sales] }));
+    await apiSync('APPEND_SALE', newSale);
     
     const admin = state.users.find(u => u.role === 'admin');
     if (admin) {
-      addNotificationToUser(admin.id, {
+      await addNotificationToUser(admin.id, {
         id: Math.random().toString(),
         message: `Sale alert: ${state.currentUser.username || state.currentUser.email} added ${product.name}`,
         timestamp: new Date().toISOString(),
@@ -125,33 +137,33 @@ const App: React.FC = () => {
         type: 'sale'
       });
     }
-    showToast('Sale submitted', 'success');
+    showToast('Sale stored in file database', 'success');
   };
 
-  const approveSale = (saleId: string) => {
-    setState(prev => {
-      const sale = prev.sales.find(s => s.id === saleId);
-      if (!sale || sale.status === 'completed') return prev;
+  const approveSale = async (saleId: string) => {
+    const sale = state.sales.find(s => s.id === saleId);
+    if (!sale || sale.status === 'completed') return;
 
-      const product = prev.products.find(p => p.id === sale.productId);
-      const adminShare = product ? product.adminShare : ADMIN_FEE_DEFAULT;
-      const employeeCommission = sale.amount - adminShare;
+    const product = state.products.find(p => p.id === sale.productId);
+    const adminShare = product ? product.adminShare : ADMIN_FEE_DEFAULT;
+    const employeeCommission = sale.amount - adminShare;
 
-      const updatedSales = prev.sales.map(s => s.id === saleId ? { ...s, status: 'completed' as const, approvedAt: new Date().toISOString() } : s);
-      const updatedUsers = prev.users.map(u => u.id === sale.employeeId ? { ...u, wallet: u.wallet + employeeCommission, totalSalesCount: u.totalSalesCount + 1 } : u);
+    const updatedSale = { ...sale, status: 'completed' as const, approvedAt: new Date().toISOString() };
+    await apiSync('UPDATE_SALE', updatedSale);
 
-      return {
-        ...prev,
-        sales: updatedSales,
-        users: updatedUsers,
-        adminWallet: prev.adminWallet + adminShare,
-        currentUser: prev.currentUser?.id === sale.employeeId ? { ...prev.currentUser, wallet: prev.currentUser.wallet + employeeCommission, totalSalesCount: prev.currentUser.totalSalesCount + 1 } : prev.currentUser
+    const employee = state.users.find(u => u.id === sale.employeeId);
+    if (employee) {
+      const updatedEmployee = { 
+        ...employee, 
+        wallet: employee.wallet + employeeCommission, 
+        totalSalesCount: employee.totalSalesCount + 1 
       };
-    });
-    showToast('Sale approved', 'success');
+      await apiSync('UPDATE_USER', updatedEmployee);
+    }
+    showToast('Sale verified and balance updated', 'success');
   };
 
-  const requestWithdraw = (amount: number, method: 'bKash' | 'Nagad' | 'Rocket', accountNumber: string) => {
+  const requestWithdraw = async (amount: number, method: 'bKash' | 'Nagad' | 'Rocket', accountNumber: string) => {
     if (!state.currentUser || state.currentUser.wallet < amount) {
       showToast('Insufficient balance!', 'error');
       return;
@@ -168,16 +180,14 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
 
-    setState(prev => ({
-      ...prev,
-      withdrawRequests: [newReq, ...prev.withdrawRequests],
-      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, wallet: u.wallet - amount } : u),
-      currentUser: { ...prev.currentUser!, wallet: prev.currentUser!.wallet - amount }
-    }));
+    await apiSync('APPEND_WITHDRAWAL', newReq);
+    
+    const updatedUser = { ...state.currentUser, wallet: state.currentUser.wallet - amount };
+    await apiSync('UPDATE_USER', updatedUser);
 
     const admin = state.users.find(u => u.role === 'admin');
     if (admin) {
-      addNotificationToUser(admin.id, {
+      await addNotificationToUser(admin.id, {
         id: Math.random().toString(),
         message: `Withdraw Request: ৳${amount} from ${state.currentUser.email}`,
         timestamp: new Date().toISOString(),
@@ -185,19 +195,22 @@ const App: React.FC = () => {
         type: 'withdraw'
       });
     }
-    showToast('Withdrawal requested', 'success');
+    showToast('Withdrawal queued', 'success');
   };
 
-  const completeWithdraw = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      withdrawRequests: prev.withdrawRequests.map(r => r.id === id ? { ...r, status: 'completed' } : r)
-    }));
-    showToast('Payment completed', 'success');
+  const completeWithdraw = async (id: string) => {
+    const req = state.withdrawRequests.find(r => r.id === id);
+    if (!req) return;
+    const updatedReq = { ...req, status: 'completed' as const };
+    const newRequests = state.withdrawRequests.map(r => r.id === id ? updatedReq : r);
+    await apiSync('SYNC_STATE', { ...state, withdrawRequests: newRequests });
+    showToast('Payout finalized', 'success');
   };
 
-  const addAnnouncement = (title: string, content: string) => {
+  const addAnnouncement = async (title: string, content: string) => {
     const newAnn = { id: Math.random().toString(), title, content, timestamp: new Date().toISOString() };
+    await apiSync('APPEND_ANNOUNCEMENT', newAnn);
+
     const notif: AppNotification = {
       id: Math.random().toString(),
       message: `Announcement: ${title}`,
@@ -206,45 +219,50 @@ const App: React.FC = () => {
       type: 'announcement'
     };
 
-    setState(prev => ({ ...prev, announcements: [newAnn, ...prev.announcements] }));
-    state.users.forEach(u => addNotificationToUser(u.id, notif));
-    showToast('Announcement posted', 'info');
+    for (const u of state.users) {
+      await addNotificationToUser(u.id, notif);
+    }
+    showToast('Broadcast published', 'info');
   };
 
-  const manageProduct = (id: string | null, product: Partial<Product> | null) => {
+  const manageProduct = async (id: string | null, product: Partial<Product> | null) => {
     if (!id && product) {
       const newP = { id: Math.random().toString(36).substr(2, 9), name: product.name!, adminShare: product.adminShare!, description: product.description || '', gallery: product.gallery || [], mainImage: product.mainImage };
-      setState(prev => ({ ...prev, products: [...prev.products, newP] }));
+      await apiSync('UPDATE_PRODUCT', [...state.products, newP]);
       showToast('Product added', 'success');
     } else if (id && product) {
-      setState(prev => ({ ...prev, products: prev.products.map(p => p.id === id ? { ...p, ...product } : p) }));
+      const updated = state.products.map(p => p.id === id ? { ...p, ...product } : p);
+      await apiSync('UPDATE_PRODUCT', updated);
       showToast('Product updated', 'success');
     } else if (id && !product) {
       if (window.confirm("Delete this product?")) {
-        setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
+        const filtered = state.products.filter(p => p.id !== id);
+        await apiSync('UPDATE_PRODUCT', filtered);
         setSelectedProductId(null);
         showToast('Product deleted', 'error');
       }
     }
   };
 
-  const updateProfile = (username: string, avatar: string, paymentAccounts: any) => {
-    setState(prev => ({
-      ...prev,
-      currentUser: { ...prev.currentUser!, username, avatar, paymentAccounts },
-      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, username, avatar, paymentAccounts } : u)
-    }));
-    showToast('Profile updated', 'success');
+  const updateProfile = async (username: string, avatar: string, paymentAccounts: any) => {
+    if (!state.currentUser) return;
+    const updatedUser = { ...state.currentUser, username, avatar, paymentAccounts };
+    await apiSync('UPDATE_USER', updatedUser);
+    showToast('Profile synced', 'success');
   };
 
-  const clearNotifications = () => {
+  const clearNotifications = async () => {
     if (!state.currentUser) return;
-    setState(prev => ({
-      ...prev,
-      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, notifications: u.notifications.map(n => ({ ...n, read: true })) } : u),
-      currentUser: { ...prev.currentUser!, notifications: prev.currentUser!.notifications.map(n => ({ ...n, read: true })) }
-    }));
+    const updatedUser = { 
+      ...state.currentUser, 
+      notifications: state.currentUser.notifications.map(n => ({ ...n, read: true })) 
+    };
+    await apiSync('UPDATE_USER', updatedUser);
   };
+
+  if (isLoading) {
+    return <div className="h-screen flex items-center justify-center text-indigo-600 font-bold">Synchronizing File Database...</div>;
+  }
 
   if (!state.currentUser) {
     return (
@@ -301,13 +319,14 @@ const App: React.FC = () => {
           )
         )}
         {activeTab === 'withdraw' && <WithdrawView state={state} onWithdraw={requestWithdraw} onComplete={completeWithdraw} />}
-        {activeTab === 'employees' && state.currentUser.role === 'admin' && <TeamHubView state={state} onCreate={(e, p) => {
+        {activeTab === 'employees' && state.currentUser.role === 'admin' && <TeamHubView state={state} onCreate={async (e, p) => {
           const newUser: User = { id: Math.random().toString(36).substr(2, 9), email: e, password: p, role: 'employee', wallet: 0, totalSalesCount: 0, notifications: [] };
-          setState(prev => ({ ...prev, users: [...prev.users, newUser] }));
+          await apiSync('UPDATE_USER', newUser);
           showToast('Team member added', 'success');
-        }} onDelete={(id) => {
+        }} onDelete={async (id) => {
           if (window.confirm("Delete this member?")) {
-            setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }));
+            const updatedUsers = state.users.filter(u => u.id !== id);
+            await apiSync('SYNC_STATE', { ...state, users: updatedUsers });
           }
         }} />}
         {activeTab === 'announcements' && <AnnouncementView state={state} onAdd={addAnnouncement} />}
@@ -323,7 +342,7 @@ const App: React.FC = () => {
   );
 };
 
-// --- Sub Views ---
+// --- Sub Views (Remain identical in UI) ---
 
 const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void; onCreateSale: (e: string, p: string, a: number, pr: string, m: any) => void }> = ({ state, onApprove, onCreateSale }) => {
   const [showModal, setShowModal] = useState(false);
@@ -408,7 +427,7 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
                 </tr>
               ))}
               {displaySales.length === 0 && (
-                <tr><td colSpan={10} className="p-12 text-center text-slate-400 text-sm font-medium italic font-sans">No transactions recorded yet</td></tr>
+                <tr><td colSpan={10} className="p-12 text-center text-slate-400 text-sm font-medium italic font-sans">No transactions found in database</td></tr>
               )}
             </tbody>
           </table>
@@ -499,7 +518,7 @@ const ProductListView: React.FC<{ state: AppState; isAdmin: boolean; onSelect: (
 
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-2xl p-8 shadow-xl animate-in zoom-in duration-200">
+          <div className="bg-white w-full max-md rounded-2xl p-8 shadow-xl animate-in zoom-in duration-200">
             <h3 className="text-lg font-bold mb-6">New Product</h3>
             <form className="space-y-4" onSubmit={e => { e.preventDefault(); onAdd({ name: form.name, adminShare: parseFloat(form.share), description: form.desc }); setShowAdd(false); setForm({ name: '', share: '', desc: '' }); }}>
               <input type="text" required placeholder="Name" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
