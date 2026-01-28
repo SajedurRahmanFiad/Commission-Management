@@ -3,14 +3,23 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
 
-// Fix: Use path.resolve('database') instead of path.join(process.cwd(), 'database') to avoid TypeScript error where 'cwd' is not recognized on 'process' in certain environments.
+// Use path.resolve('database') to ensure the path is correct relative to the project root.
 const DB_PATH = path.resolve('database');
+
+// Ensure directory exists
+if (!fs.existsSync(DB_PATH)) {
+  fs.mkdirSync(DB_PATH, { recursive: true });
+}
 
 const readFile = (filename: string) => {
   const filePath = path.join(DB_PATH, `${filename}.json`);
   if (!fs.existsSync(filePath)) return [];
-  const data = fs.readFileSync(filePath, 'utf8');
-  return JSON.parse(data);
+  try {
+    const data = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(data || '[]');
+  } catch (e) {
+    return [];
+  }
 };
 
 const writeFile = (filename: string, data: any) => {
@@ -56,12 +65,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       switch (action) {
         case 'SYNC_STATE':
-          // Full state overwrite (if needed)
-          writeFile('users', payload.users);
-          writeFile('sales', payload.sales);
-          writeFile('products', payload.products);
-          writeFile('announcements', payload.announcements);
-          writeFile('withdrawals', payload.withdrawRequests);
+          if (payload.users) writeFile('users', payload.users);
+          if (payload.sales) writeFile('sales', payload.sales);
+          if (payload.products) writeFile('products', payload.products);
+          if (payload.announcements) writeFile('announcements', payload.announcements);
+          if (payload.withdrawRequests) writeFile('withdrawals', payload.withdrawRequests);
           break;
 
         case 'APPEND_SALE':
@@ -71,8 +79,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         case 'UPDATE_USER':
           const currentUsers = readFile('users');
-          const updatedUsers = currentUsers.map((u: any) => u.id === payload.id ? payload : u);
-          writeFile('users', updatedUsers);
+          const userIndex = currentUsers.findIndex((u: any) => u.id === payload.id);
+          if (userIndex > -1) {
+            currentUsers[userIndex] = payload;
+            writeFile('users', currentUsers);
+          } else {
+            writeFile('users', [...currentUsers, payload]);
+          }
           break;
           
         case 'APPEND_ANNOUNCEMENT':
@@ -91,4 +104,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           break;
 
         case 'UPDATE_PRODUCT':
-          const
+          writeFile('products', payload);
+          break;
+          
+        default:
+          return res.status(400).json({ error: 'Unknown action' });
+      }
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("DB Write Error:", error);
+      return res.status(500).json({ error: 'Failed to write to database' });
+    }
+  }
+}
