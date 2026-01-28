@@ -3,28 +3,24 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { User, Sale, Role, AppState, AppNotification, Product, Announcement, WithdrawRequest } from './types';
 import { Icons, ADMIN_FEE_DEFAULT } from './constants';
 import Layout, { formatDateTime } from './components/Layout';
-import { generateApprovalEmail } from './services/geminiService';
 
-const STORAGE_KEY = 'commission_pro_super_v4_final';
+const STORAGE_KEY = 'commission_pro_local_v1';
 
 // --- Toast Component ---
 const Toast: React.FC<{ message: string; type: 'success' | 'info' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
   useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
+    const timer = setTimeout(onClose, 5000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const styles = {
-    success: 'bg-emerald-600 text-white',
-    info: 'bg-slate-800 text-white',
-    error: 'bg-red-600 text-white'
-  };
+  const bgColor = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-red-600' : 'bg-indigo-600';
 
   return (
-    <div className={`fixed bottom-6 right-6 z-[100] px-5 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-2 duration-300 font-medium text-sm ${styles[type]}`}>
-      {type === 'success' && <Icons.Check />}
-      <span>{message}</span>
-      <button onClick={onClose} className="ml-2 text-xs opacity-70 hover:opacity-100">✕</button>
+    <div className={`${bgColor} text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-right-full duration-300 pointer-events-auto`}>
+      <div className="flex-1 font-bold text-sm tracking-tight">{message}</div>
+      <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
+        <Icons.X />
+      </button>
     </div>
   );
 };
@@ -36,11 +32,19 @@ const App: React.FC = () => {
     return {
       currentUser: null,
       users: [
-        { id: '1', email: 'admin@system.com', password: 'admin', role: 'admin', wallet: 0, totalSalesCount: 0, notifications: [] }
+        { 
+          id: '1', 
+          email: 'admin@system.com', 
+          password: 'admin', 
+          role: 'admin', 
+          wallet: 0, 
+          totalSalesCount: 0, 
+          notifications: [] 
+        }
       ],
       sales: [],
       products: [
-        { id: 'p1', name: 'Elite Digital Suite', adminShare: 400, description: 'Complete access to our digital tools and resources.', gallery: [] },
+        { id: 'p1', name: 'Elite Digital Suite', adminShare: 400, description: 'Complete access to our digital tools.', gallery: [] },
         { id: 'p2', name: 'Founder License', adminShare: 1200, description: 'Exclusive membership for early partners.', gallery: [] }
       ],
       announcements: [],
@@ -59,16 +63,10 @@ const App: React.FC = () => {
     setToasts(prev => [...prev, { id: Math.random().toString(), message, type }]);
   }, []);
 
+  // Persist state to local storage
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        console.error('Storage quota exceeded. Using larger images causes this in LocalStorage. Move to MariaDB to resolve permanently.');
-        showToast('Storage Limit! Large images cannot be saved.', 'error');
-      }
-    }
-  }, [state, showToast]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,18 +113,18 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
 
-    const notif: AppNotification = {
-      id: Math.random().toString(),
-      message: `Sale alert: ${state.currentUser.username || state.currentUser.email} added ${product.name}`,
-      timestamp: new Date().toISOString(),
-      read: false,
-      type: 'sale'
-    };
-
     setState(prev => ({ ...prev, sales: [newSale, ...prev.sales] }));
-    const admin = state.users.find(u => u.role === 'admin');
-    if (admin) addNotificationToUser(admin.id, notif);
     
+    const admin = state.users.find(u => u.role === 'admin');
+    if (admin) {
+      addNotificationToUser(admin.id, {
+        id: Math.random().toString(),
+        message: `Sale alert: ${state.currentUser.username || state.currentUser.email} added ${product.name}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        type: 'sale'
+      });
+    }
     showToast('Sale submitted', 'success');
   };
 
@@ -177,17 +175,16 @@ const App: React.FC = () => {
       currentUser: { ...prev.currentUser!, wallet: prev.currentUser!.wallet - amount }
     }));
 
-    const notif: AppNotification = {
-      id: Math.random().toString(),
-      message: `Withdraw Request: ৳${amount} from ${state.currentUser.email}`,
-      timestamp: new Date().toISOString(),
-      read: false,
-      type: 'withdraw'
-    };
-
     const admin = state.users.find(u => u.role === 'admin');
-    if (admin) addNotificationToUser(admin.id, notif);
-
+    if (admin) {
+      addNotificationToUser(admin.id, {
+        id: Math.random().toString(),
+        message: `Withdraw Request: ৳${amount} from ${state.currentUser.email}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        type: 'withdraw'
+      });
+    }
     showToast('Withdrawal requested', 'success');
   };
 
@@ -196,7 +193,7 @@ const App: React.FC = () => {
       ...prev,
       withdrawRequests: prev.withdrawRequests.map(r => r.id === id ? { ...r, status: 'completed' } : r)
     }));
-    showToast('Payment marked as completed', 'success');
+    showToast('Payment completed', 'success');
   };
 
   const addAnnouncement = (title: string, content: string) => {
@@ -216,7 +213,7 @@ const App: React.FC = () => {
 
   const manageProduct = (id: string | null, product: Partial<Product> | null) => {
     if (!id && product) {
-      const newP = { id: Math.random().toString(36).substr(2, 9), name: product.name!, adminShare: product.adminShare!, description: product.description || '', gallery: product.gallery || [] };
+      const newP = { id: Math.random().toString(36).substr(2, 9), name: product.name!, adminShare: product.adminShare!, description: product.description || '', gallery: product.gallery || [], mainImage: product.mainImage };
       setState(prev => ({ ...prev, products: [...prev.products, newP] }));
       showToast('Product added', 'success');
     } else if (id && product) {
@@ -283,37 +280,45 @@ const App: React.FC = () => {
       setActiveTab={(t) => { setActiveTab(t); setSelectedProductId(null); }}
       onClearNotifications={clearNotifications}
     >
-      {activeTab === 'dashboard' && <DashboardView state={state} onApprove={approveSale} onCreateSale={createSale} />}
-      {activeTab === 'products' && (
-        selectedProductId ? (
-          <ProductDetailView 
-            product={state.products.find(p => p.id === selectedProductId)!} 
-            isAdmin={state.currentUser.role === 'admin'} 
-            onClose={() => setSelectedProductId(null)} 
-            onUpdate={(p) => manageProduct(selectedProductId, p)}
-            onDelete={() => manageProduct(selectedProductId, null)}
-          />
-        ) : (
-          <ProductListView 
-            state={state} 
-            isAdmin={state.currentUser.role === 'admin'} 
-            onSelect={setSelectedProductId} 
-            onAdd={(p) => manageProduct(null, p)} 
-          />
-        )
-      )}
-      {activeTab === 'withdraw' && <WithdrawView state={state} onWithdraw={requestWithdraw} onComplete={completeWithdraw} />}
-      {activeTab === 'employees' && state.currentUser.role === 'admin' && <TeamHubView state={state} onCreate={(e, p) => {
-        const newUser: User = { id: Math.random().toString(36).substr(2, 9), email: e, password: p, role: 'employee', wallet: 0, totalSalesCount: 0, notifications: [] };
-        setState(prev => ({ ...prev, users: [...prev.users, newUser] }));
-        showToast('Team member added', 'success');
-      }} onDelete={(id) => setState(p => ({ ...p, users: p.users.filter(u => u.id !== id) }))} />}
-      {activeTab === 'announcements' && <AnnouncementView state={state} onAdd={addAnnouncement} />}
-      {activeTab === 'profile' && <ProfileView user={state.currentUser} onUpdate={updateProfile} />}
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
+        {activeTab === 'dashboard' && <DashboardView state={state} onApprove={approveSale} onCreateSale={createSale} />}
+        {activeTab === 'products' && (
+          selectedProductId ? (
+            <ProductDetailView 
+              product={state.products.find(p => p.id === selectedProductId)!} 
+              isAdmin={state.currentUser.role === 'admin'} 
+              onClose={() => setSelectedProductId(null)} 
+              onUpdate={(p) => manageProduct(selectedProductId, p)}
+              onDelete={() => manageProduct(selectedProductId, null)}
+            />
+          ) : (
+            <ProductListView 
+              state={state} 
+              isAdmin={state.currentUser.role === 'admin'} 
+              onSelect={setSelectedProductId} 
+              onAdd={(p) => manageProduct(null, p)} 
+            />
+          )
+        )}
+        {activeTab === 'withdraw' && <WithdrawView state={state} onWithdraw={requestWithdraw} onComplete={completeWithdraw} />}
+        {activeTab === 'employees' && state.currentUser.role === 'admin' && <TeamHubView state={state} onCreate={(e, p) => {
+          const newUser: User = { id: Math.random().toString(36).substr(2, 9), email: e, password: p, role: 'employee', wallet: 0, totalSalesCount: 0, notifications: [] };
+          setState(prev => ({ ...prev, users: [...prev.users, newUser] }));
+          showToast('Team member added', 'success');
+        }} onDelete={(id) => {
+          if (window.confirm("Delete this member?")) {
+            setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }));
+          }
+        }} />}
+        {activeTab === 'announcements' && <AnnouncementView state={state} onAdd={addAnnouncement} />}
+        {activeTab === 'profile' && <ProfileView user={state.currentUser} onUpdate={updateProfile} />}
+      </div>
 
-      {toasts.map(t => (
-        <Toast key={t.id} message={t.message} type={t.type} onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))} />
-      ))}
+      <div className="fixed bottom-0 right-0 p-6 z-[9999] flex flex-col gap-3 pointer-events-none">
+        {toasts.map(t => (
+          <Toast key={t.id} message={t.message} type={t.type} onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))} />
+        ))}
+      </div>
     </Layout>
   );
 };
@@ -323,14 +328,13 @@ const App: React.FC = () => {
 const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void; onCreateSale: (e: string, p: string, a: number, pr: string, m: any) => void }> = ({ state, onApprove, onCreateSale }) => {
   const [showModal, setShowModal] = useState(false);
   const isEmployee = state.currentUser?.role === 'employee';
-  const currentUserData = state.users.find(u => u.id === state.currentUser?.id);
   const displaySales = isEmployee ? state.sales.filter(s => s.employeeId === state.currentUser?.id) : state.sales;
 
   const [formData, setFormData] = useState({ email: '', phone: '', amount: '', productId: '', method: 'bKash' as any });
 
   const stats = isEmployee ? [
-    { label: 'Net Wallet', val: `৳${currentUserData?.wallet.toLocaleString()}`, color: 'text-emerald-600', icon: Icons.Wallet },
-    { label: 'Sales Done', val: currentUserData?.totalSalesCount || 0, color: 'text-indigo-600', icon: Icons.Check },
+    { label: 'Net Wallet', val: `৳${state.currentUser?.wallet.toLocaleString()}`, color: 'text-emerald-600', icon: Icons.Wallet },
+    { label: 'Sales Done', val: state.currentUser?.totalSalesCount || 0, color: 'text-indigo-600', icon: Icons.Check },
     { label: 'Pending', val: displaySales.filter(s => s.status === 'pending').length, color: 'text-amber-600', icon: Icons.Dashboard }
   ] : [
     { label: 'Total Volume', val: `৳${state.adminWallet.toLocaleString()}`, color: 'text-emerald-600', icon: Icons.Wallet },
@@ -378,7 +382,7 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
             <tbody className="divide-y divide-slate-100">
               {displaySales.map(sale => (
                 <tr key={sale.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-xs font-semibold text-slate-700">{sale.employeeEmail.split('@')[0]}</td>
+                  <td className="px-6 py-4 text-xs font-semibold text-slate-700">{sale.employeeEmail?.split('@')[0]}</td>
                   <td className="px-6 py-4 text-center">
                     <span className="text-[10px] font-bold text-slate-500 uppercase">{sale.paymentMethod}</span>
                   </td>
@@ -404,7 +408,7 @@ const DashboardView: React.FC<{ state: AppState; onApprove: (id: string) => void
                 </tr>
               ))}
               {displaySales.length === 0 && (
-                <tr><td colSpan={10} className="p-12 text-center text-slate-400 text-sm font-medium">No sales recorded</td></tr>
+                <tr><td colSpan={10} className="p-12 text-center text-slate-400 text-sm font-medium italic font-sans">No transactions recorded yet</td></tr>
               )}
             </tbody>
           </table>
@@ -667,7 +671,7 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
             <tbody className="divide-y divide-slate-100">
               {displayRequests.map(r => (
                 <tr key={r.id} className="text-xs hover:bg-slate-50 transition-colors">
-                  {!isEmployee && <td className="px-6 py-4 font-semibold">{r.employeeEmail.split('@')[0]}</td>}
+                  {!isEmployee && <td className="px-6 py-4 font-semibold">{r.employeeEmail?.split('@')[0]}</td>}
                   <td className="px-6 py-4 font-bold text-indigo-600 text-center">৳{r.amount}</td>
                   <td className="px-6 py-4 uppercase text-center">{r.method}</td>
                   <td className="px-6 py-4 font-mono text-slate-500">
@@ -687,7 +691,7 @@ const WithdrawView: React.FC<{ state: AppState; onWithdraw: (a: number, m: any, 
                 </tr>
               ))}
               {displayRequests.length === 0 && (
-                <tr><td colSpan={10} className="p-12 text-center text-slate-400 font-medium text-xs uppercase tracking-widest">No requests</td></tr>
+                <tr><td colSpan={10} className="p-12 text-center text-slate-400 font-medium text-xs uppercase tracking-widest italic">No financial movements found</td></tr>
               )}
             </tbody>
           </table>
@@ -877,7 +881,7 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 1024 * 300) {
-        alert('Image too large! Please choose a file smaller than 300KB to fit in browser storage.');
+        alert('Image too large! Please choose a file smaller than 300KB.');
         return;
       }
       const reader = new FileReader();
@@ -924,7 +928,7 @@ const ProfileView: React.FC<{ user: User; onUpdate: (u: string, a: string, p: an
           </div>
         </div>
       )}
-      <button onClick={() => onUpdate(username, avatar, paymentAccounts)} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] hover:bg-indigo-700">Update Workspace Profile</button>
+      <button onClick={() => onUpdate(username, avatar, paymentAccounts)} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold transition-all shadow-md active:scale-[0.98] hover:bg-indigo-700">Update Profile</button>
     </div>
   );
 };
