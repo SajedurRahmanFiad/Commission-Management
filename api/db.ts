@@ -69,12 +69,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const announcements = readFile('announcements');
       const withdrawals = readFile('withdrawals');
 
-      // Calculate admin wallet based on completed sales
+      // Calculate admin wallet based on completed sales (respect pricingModel)
       const adminWallet = sales
         .filter((s: any) => s.status === 'completed')
         .reduce((acc: number, sale: any) => {
           const product = products.find((p: any) => p.id === sale.productId);
-          return acc + (product ? product.adminShare : 0);
+          if (!product) return acc;
+          if (product.pricingModel === 'commission') {
+            return acc + Math.round((sale.amount * (product.commissionPercent || 0)) / 100);
+          }
+          return acc + (product.adminShare || 0);
         }, 0);
 
       return res.status(200).json({

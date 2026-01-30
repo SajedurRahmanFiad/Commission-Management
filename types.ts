@@ -19,12 +19,17 @@ export interface User {
 }
 
 export type SaleStatus = 'pending' | 'completed';
-export type WithdrawStatus = 'pending' | 'completed';
+export type WithdrawStatus = 'pending' | 'completed' | 'declined';
 
 export interface Product {
   id: string;
   name: string;
-  adminShare: number;
+  // Pricing model for product: 'fixed' = fixed admin amount; 'commission' = percentage of sale
+  pricingModel?: 'fixed' | 'commission';
+  // For fixed price model: adminShare is the fixed amount admin receives per sale
+  adminShare?: number;
+  // For commission model: commissionPercent is the percentage (0-100) the admin receives per sale
+  commissionPercent?: number;
   description: string;
   mainImage?: string;
   gallery: string[];
@@ -35,6 +40,7 @@ export interface Announcement {
   title: string;
   content: string;
   timestamp: string;
+  seenBy?: string[]; // Array of user IDs who have seen this announcement
 }
 
 export interface Sale {

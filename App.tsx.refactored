@@ -1,0 +1,365 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { User, Sale, Role, AppState, AppNotification, Product, Announcement, WithdrawRequest } from './types';
+import { Icons, ADMIN_FEE_DEFAULT } from './constants';
+import Layout, { formatDateTime } from './components/Layout';
+import { fetchDatabaseState, appendSale, appendWithdrawal, appendAnnouncement, updateUser, updateSale, updateProducts, uploadFile, updateWithdrawal } from './services/databaseService';
+
+// Import all views
+import DashboardView from './components/views/DashboardView';
+import Toast from './components/shared/Toast';
+
+// --- Local Database Constants ---
+const DB_VERSION = 'v2.1';
+const STORAGE_KEY = `commishpro_db_${DB_VERSION}`;
+
+const SEED_DATA: Omit<AppState, 'currentUser'> = {
+  users: [
+    {
+      id: 'admin-1',
+      email: 'admin@system.com',
+      password: 'admin',
+      role: 'admin',
+      wallet: 0,
+      totalSalesCount: 0,
+      notifications: [],
+      username: 'System Admin'
+    }
+  ],
+  products: [
+    {
+      id: 'p1',
+      name: 'Premium Subscription1',
+      adminShare: 400,
+      description: 'Full access to all premium platform features and priority support.',
+      gallery: []
+    },
+    {
+      id: 'p2',
+      name: 'Enterprise License1',
+      adminShare: 1500,
+      description: 'Corporate-grade license for teams with unlimited seats.',
+      gallery: []
+    }
+  ],
+  sales: [],
+  announcements: [],
+  withdrawRequests: [],
+  adminWallet: 0,
+};
+
+const App: React.FC = () => {
+  const [state, setState] = useState<AppState>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          return { ...parsed, currentUser: null };
+        } catch (e) {
+          console.error("Local storage corruption, resetting to seed data.");
+        }
+      }
+    }
+    return { ...SEED_DATA, currentUser: null } as AppState;
+  });
+
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'info' | 'error' }[]>([]);
+  const [isLoadingDatabase, setIsLoadingDatabase] = useState(true);
+
+  useEffect(() => {
+    const initializeDatabase = async () => {
+      try {
+        const dbData = await fetchDatabaseState();
+        if (dbData) {
+          setState(prev => ({
+            ...prev,
+            users: dbData.users && Array.isArray(dbData.users) ? dbData.users : prev.users,
+            products: dbData.products && Array.isArray(dbData.products) ? dbData.products : prev.products,
+            sales: dbData.sales && Array.isArray(dbData.sales) ? dbData.sales : prev.sales,
+            announcements: dbData.announcements && Array.isArray(dbData.announcements) ? dbData.announcements : prev.announcements,
+            withdrawRequests: dbData.withdrawRequests && Array.isArray(dbData.withdrawRequests) ? dbData.withdrawRequests : prev.withdrawRequests,
+            adminWallet: dbData.adminWallet || prev.adminWallet,
+          }));
+          console.log('Database initialized from server files');
+        }
+      } catch (error) {
+        console.log('Database fetch failed, using localStorage as fallback');
+      } finally {
+        setIsLoadingDatabase(false);
+      }
+    };
+
+    initializeDatabase();
+  }, []);
+
+  useEffect(() => {
+    const { currentUser, ...persistentPart } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentPart));
+  }, [state]);
+
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'info') => {
+    setToasts(prev => [...prev, { id: Math.random().toString(), message, type }]);
+  }, []);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = state.users.find(u => u.email === loginForm.email && u.password === loginForm.password);
+    if (user) {
+      setState(prev => ({ ...prev, currentUser: user }));
+      setLoginForm({ email: '', password: '' });
+      setLoginError('');
+    } else {
+      setLoginError('Invalid credentials');
+    }
+  };
+
+  const handleLogout = () => {
+    setState(prev => ({ ...prev, currentUser: null }));
+    setActiveTab('dashboard');
+  };
+
+  const addNotificationToUser = (userId: string, notification: AppNotification) => {
+    setState(prev => ({
+      ...prev,
+      users: prev.users.map(u => u.id === userId ? { ...u, notifications: [notification, ...u.notifications] } : u),
+      currentUser: prev.currentUser?.id === userId ? { ...prev.currentUser, notifications: [notification, ...prev.currentUser.notifications] } : prev.currentUser,
+    }));
+  };
+
+  const clearNotifications = () => {
+    if (!state.currentUser) return;
+    setState(prev => ({
+      ...prev,
+      users: prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, notifications: u.notifications.map(n => ({ ...n, read: true })) } : u),
+      currentUser: prev.currentUser ? { ...prev.currentUser, notifications: prev.currentUser.notifications.map(n => ({ ...n, read: true })) } : null,
+    }));
+  };
+
+  const createSale = async (customerEmail: string, customerPhone: string, amount: number, productId: string, paymentMethod: 'bKash' | 'Nagad' | 'Rocket') => {
+    if (!state.currentUser) return;
+    const product = state.products.find(p => p.id === productId);
+
+    const newSale: Sale = {
+      id: Math.random().toString(36).substr(2, 9),
+      employeeId: state.currentUser.id,
+      employeeEmail: state.currentUser.email,
+      customerEmail,
+      customerPhone,
+      amount,
+      productId,
+      productName: product?.name || '',
+      paymentMethod,
+      status: 'pending',
+      timestamp: new Date().toISOString()
+    };
+
+    setState(prev => ({ ...prev, sales: [newSale, ...prev.sales] }));
+    await appendSale(newSale);
+
+    state.users.filter(u => u.role === 'admin').forEach(admin => {
+      addNotificationToUser(admin.id, {
+        id: Math.random().toString(),
+        message: `New Sale Request from ${state.currentUser?.email.split('@')[0]}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        type: 'sale'
+      });
+    });
+
+    showToast('Sale logged for review', 'success');
+  };
+
+  const approveSale = async (saleId: string) => {
+    const sale = state.sales.find(s => s.id === saleId);
+    if (!sale || sale.status === 'completed') return;
+
+    const product = state.products.find(p => p.id === sale.productId);
+    const adminShare = product ? product.adminShare : ADMIN_FEE_DEFAULT;
+    const employeeCommission = sale.amount - adminShare;
+
+    const updatedSale = { ...sale, status: 'completed' as const, approvedAt: new Date().toISOString() };
+
+    setState(prev => {
+      const updatedSales = prev.sales.map(s => s.id === saleId ? updatedSale : s);
+      const updatedUsers = prev.users.map(u => {
+        if (u.id === sale.employeeId) {
+          return { ...u, wallet: u.wallet + employeeCommission, totalSalesCount: (u.totalSalesCount || 0) + 1 };
+        }
+        return u;
+      });
+
+      const newAdminWallet = updatedSales
+        .filter(s => s.status === 'completed')
+        .reduce((acc, s) => acc + (prev.products.find(p => p.id === s.productId)?.adminShare || 0), 0);
+
+      return {
+        ...prev,
+        sales: updatedSales,
+        users: updatedUsers,
+        adminWallet: newAdminWallet,
+        currentUser: prev.currentUser?.id === sale.employeeId 
+          ? updatedUsers.find(u => u.id === sale.employeeId) || null 
+          : prev.currentUser
+      };
+    });
+
+    await updateSale(updatedSale);
+
+    const employeeUser = state.users.find(u => u.id === sale.employeeId);
+    if (employeeUser) {
+      const updatedEmployee = {
+        ...employeeUser,
+        wallet: employeeUser.wallet + employeeCommission,
+        totalSalesCount: (employeeUser.totalSalesCount || 0) + 1
+      };
+      await updateUser(updatedEmployee);
+    }
+
+    showToast('Transaction finalized', 'success');
+  };
+
+  const requestWithdraw = async (amount: number, method: 'bKash' | 'Nagad' | 'Rocket', accountNumber: string) => {
+    if (!state.currentUser || state.currentUser.wallet < amount) {
+      showToast('Insufficient balance', 'error');
+      return;
+    }
+
+    const newReq: WithdrawRequest = {
+      id: Math.random().toString(36).substr(2, 9),
+      employeeId: state.currentUser.id,
+      employeeEmail: state.currentUser.email,
+      amount,
+      method,
+      accountNumber,
+      status: 'pending',
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedUser = { ...state.currentUser, wallet: state.currentUser.wallet - amount };
+    setState(prev => ({
+      ...prev,
+      withdrawRequests: [newReq, ...prev.withdrawRequests],
+      users: prev.users.map(u => u.id === prev.currentUser?.id ? updatedUser : u),
+      currentUser: updatedUser
+    }));
+
+    await appendWithdrawal(newReq);
+    showToast('Withdrawal request submitted', 'success');
+  };
+
+  const completeWithdraw = async (id: string) => {
+    const withdrawRequest = state.withdrawRequests.find(r => r.id === id);
+    if (!withdrawRequest) return;
+
+    const updatedRequest = { ...withdrawRequest, status: 'completed' as const };
+    
+    setState(prev => ({
+      ...prev,
+      withdrawRequests: prev.withdrawRequests.map(r => r.id === id ? updatedRequest : r)
+    }));
+
+    await updateWithdrawal(updatedRequest);
+    showToast('Payment settled', 'success');
+  };
+
+  const manageProduct = async (id: string | null, data: Partial<Product> | null) => {
+    if (!id && data) {
+      const newP: Product = { 
+        id: Math.random().toString(36).substr(2, 9), 
+        name: data.name!, 
+        adminShare: data.adminShare!, 
+        description: data.description || '', 
+        gallery: [], 
+        mainImage: data.mainImage 
+      };
+      setState(prev => ({ ...prev, products: [...prev.products, newP] }));
+      showToast('Added to catalog', 'success');
+    } else if (id && data) {
+      setState(prev => ({ ...prev, products: prev.products.map(p => p.id === id ? { ...p, ...data } : p) }));
+      await updateProducts(state.products.map(p => p.id === id ? { ...p, ...data } : p));
+      showToast('Catalog updated', 'success');
+    } else if (id && !data) {
+      if (window.confirm("Delete this category?")) {
+        setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== id) }));
+        setSelectedProductId(null);
+      }
+    }
+  };
+
+  const updateProfile = async (username: string, avatar: string, paymentAccounts: any) => {
+    if (!state.currentUser) return;
+    const updatedUser = { ...state.currentUser, username, avatar, paymentAccounts };
+    setState(prev => ({
+      ...prev,
+      users: prev.users.map(u => u.id === prev.currentUser?.id ? updatedUser : u),
+      currentUser: updatedUser
+    }));
+    await updateUser(updatedUser);
+    showToast('Profile synchronized', 'success');
+  };
+
+  if (isLoadingDatabase) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6 animate-pulse shadow-xl shadow-indigo-100">C</div>
+          <p className="text-slate-600 font-semibold">Initializing CommishPro...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state.currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full bg-white rounded-[2rem] shadow-2xl border border-slate-200 p-12 animate-in fade-in zoom-in duration-300">
+          <div className="text-center mb-10">
+            <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold mx-auto mb-6 shadow-xl shadow-indigo-100">C</div>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">CommishPro</h1>
+            <p className="text-slate-400 text-sm mt-2 font-medium">Commission Management System</p>
+          </div>
+          {loginError && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm font-bold">{loginError}</div>}
+          <form onSubmit={handleLogin} className="space-y-5">
+            <input type="email" placeholder="Email" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-700 focus:border-indigo-500 transition-all" value={loginForm.email} onChange={e => setLoginForm({ ...loginForm, email: e.target.value })} />
+            <input type="password" placeholder="Password" required className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-700 focus:border-indigo-500 transition-all" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} />
+            <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-[0.98]">Enter Portal</button>
+          </form>
+          <div className="mt-8 text-center pt-6 border-t border-slate-50">
+            <p className="text-[9px] font-bold text-slate-300 uppercase tracking-[0.2em]">Admin: admin@system.com / admin</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isEmployee = state.currentUser?.role === 'employee';
+  const displaySales = useMemo(() => isEmployee ? state.sales.filter(s => s.employeeId === state.currentUser?.id) : state.sales, [state.sales, state.currentUser, isEmployee]);
+
+  return (
+    <Layout
+      currentUser={state.currentUser}
+      onLogout={handleLogout}
+      activeTab={activeTab}
+      setActiveTab={(t) => { setActiveTab(t); setSelectedProductId(null); }}
+      onClearNotifications={clearNotifications}
+    >
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto">
+        {activeTab === 'dashboard' && <DashboardView state={state} onApprove={approveSale} onCreateSale={createSale} displaySales={displaySales} />}
+        {/* Additional views will be imported and rendered here */}
+      </div>
+
+      <div className="fixed bottom-0 right-0 p-6 z-[9999] flex flex-col gap-3 pointer-events-none">
+        {toasts.map(t => (
+          <Toast key={t.id} message={t.message} type={t.type} onClose={() => setToasts(prev => prev.filter(x => x.id !== t.id))} />
+        ))}
+      </div>
+    </Layout>
+  );
+};
+
+export default App;
