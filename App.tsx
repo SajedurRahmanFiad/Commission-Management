@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Sale, Role, AppState, AppNotification, Product, Announcement, WithdrawRequest } from './types';
 import { Icons, ADMIN_FEE_DEFAULT } from './constants';
 import Layout, { formatDateTime } from './components/Layout';
-import { fetchDatabaseState, appendSale, appendWithdrawal, appendAnnouncement, updateUser, updateSale, updateProducts, uploadFile, updateWithdrawal, updateAnnouncement, deleteAnnouncement } from './services/databaseService';
+import { fetchDatabaseState, appendSale, appendWithdrawal, appendAnnouncement, updateUser, updateSale, updateProducts, uploadFile, updateWithdrawal, updateAnnouncement, deleteAnnouncement, login } from './services/databaseService';
 import { DashboardView, SalesView, ProductListView, ProductDetailView, WithdrawView, TeamHubView, UserDetailView, AnnouncementView, ProfileView } from './components/views';
 import { calculateBadgeCounts } from './services/notificationBadgeService';
 
@@ -82,22 +82,18 @@ const App: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Restore saved data (users, products, etc.)
-        if (parsed.users && Array.isArray(parsed.users)) initialState.users = parsed.users;
-        if (parsed.products && Array.isArray(parsed.products)) initialState.products = parsed.products;
+        // Do NOT restore the full `users` array from localStorage - prefer the database as authoritative
+        // Restore only lightweight persisted pieces (sales, announcements, withdrawRequests, adminWallet)
         if (parsed.sales && Array.isArray(parsed.sales)) initialState.sales = parsed.sales;
         if (parsed.announcements && Array.isArray(parsed.announcements)) initialState.announcements = parsed.announcements;
         if (parsed.withdrawRequests && Array.isArray(parsed.withdrawRequests)) initialState.withdrawRequests = parsed.withdrawRequests;
-        if (typeof parsed.adminWallet === 'number') initialState.adminWallet = parsed.adminWallet;
-        
-        // Restore the logged-in user if one was saved
+
+        // Preserve saved currentUserId so we can reconcile with DB on first fetch
         const savedId = parsed?.currentUserId;
         if (savedId) {
-          const user = initialState.users.find((u: any) => u.id === savedId);
-          if (user) {
-            initialState.currentUser = user;
-            console.log('✓ Restored user from localStorage on init:', savedId);
-          }
+          // set a placeholder currentUser with only id so UI knows there's a session pending reconciliation
+          initialState.currentUser = { id: savedId } as any;
+          console.log('✓ Restored currentUserId from localStorage (will reconcile with DB):', savedId);
         }
       }
     } catch (e) {
@@ -128,6 +124,64 @@ const App: React.FC = () => {
     currentUserIdRef.current = state.currentUser?.id || null;
   }, [state.currentUser?.id]);
 
+  // Track withdrawals that are pending reconciliation to avoid poll overwrites
+  const pendingWithdrawalsRef = React.useRef<Set<string>>(new Set());
+
+  // Normalize user object from DB: map snake_case payout/fields to camelCase and populate paymentAccounts
+  const normalizeUser = (u: any) => {
+    if (!u) return u;
+    const bkash = u.bkash_number || u.bkashNumber || '';
+    const nagad = u.nagad_number || u.nagadNumber || '';
+    const rocket = u.rocket_number || u.rocketNumber || '';
+    const totalSales = u.total_sales_count !== undefined ? u.total_sales_count : (u.totalSalesCount !== undefined ? u.totalSalesCount : u.totalSalesCount);
+    return {
+      ...u,
+      bkashNumber: bkash,
+      nagadNumber: nagad,
+      rocketNumber: rocket,
+      totalSalesCount: totalSales || 0,
+      paymentAccounts: { bKash: bkash, Nagad: nagad, Rocket: rocket }
+    };
+  };
+
+  // Normalize product row from DB (snake_case) to UI-friendly camelCase
+  const normalizeProduct = (p: any) => {
+    if (!p) return p;
+    // gallery may be stored as jsonb or array
+    const gallery = Array.isArray(p.gallery) ? p.gallery : (p.gallery ? (typeof p.gallery === 'string' ? (() => {
+      try { return JSON.parse(p.gallery); } catch { return []; }
+    })() : p.gallery) : []);
+
+    return {
+      ...p,
+      pricingModel: p.pricing_model || p.pricingModel || 'fixed',
+      adminShare: p.admin_share !== undefined ? Number(p.admin_share) : (p.adminShare ?? 0),
+      commissionPercent: p.commission_percent !== undefined ? Number(p.commission_percent) : (p.commissionPercent ?? undefined),
+      gallery,
+      mainImage: p.main_image || p.mainImage || undefined
+    };
+  };
+
+  // Normalize sale row from DB (snake_case) to UI-friendly camelCase
+  const normalizeSale = (s: any) => {
+    if (!s) return s;
+    return {
+      ...s,
+      id: s.id,
+      employeeId: s.employee_id || s.employeeId || s.employee,
+      employeeEmail: s.employee_email || s.employeeEmail || '',
+      customerEmail: s.customer_email || s.customerEmail || '',
+      customerPhone: s.customer_phone || s.customerPhone || '',
+      productId: s.product_id || s.productId || '',
+      productName: s.product_name || s.productName || '',
+      amount: s.amount !== undefined ? Number(s.amount) : (s.amount || 0),
+      paymentMethod: s.payment_method || s.paymentMethod || s.paymentType || 'bKash',
+      status: s.status || 'pending',
+      timestamp: s.timestamp || s.created_at || new Date().toISOString(),
+      approvedAt: s.approved_at || s.approvedAt || undefined
+    };
+  };
+
   // Fetch data from database files on app load
   useEffect(() => {
     const initializeDatabase = async () => {
@@ -135,37 +189,62 @@ const App: React.FC = () => {
         const dbData = await fetchDatabaseState();
         
         if (dbData) {
-          // Try to restore the saved user ID
-          let restoredUser = null;
+          // Try to restore the saved user ID or saved user email and reconcile with DB data
+          let restoredUser: any = null;
+          let savedUserObj: any = null;
           try {
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
               const parsed = JSON.parse(saved);
               const savedId = parsed?.currentUserId;
+              if (parsed?.users && Array.isArray(parsed.users) && savedId) savedUserObj = parsed.users.find((u: any) => u.id === savedId) || null;
+
               if (savedId && dbData.users) {
-                restoredUser = dbData.users.find((u: any) => u.id === savedId) || null;
-                if (restoredUser) {
-                  console.log('✓ User session updated from fresh DB data:', savedId);
-                }
+                restoredUser = dbData.users.map(normalizeUser).find((u: any) => u.id === savedId) || null;
               }
+
+              // Fallback: if we had a saved user object with an email, try to match by email in DB
+              if (!restoredUser && savedUserObj && savedUserObj.email && dbData.users) {
+                restoredUser = dbData.users.map(normalizeUser).find((u: any) => (u.email || '').toLowerCase() === (savedUserObj.email || '').toLowerCase()) || null;
+              }
+
+              if (restoredUser) console.log('✓ User session updated from fresh DB data:', restoredUser.id || restoredUser.email);
             }
           } catch (e) {
             console.error('Error restoring user session:', e);
           }
 
-          // Merge database data with local state, keeping the current user if already logged in
-          setState(prev => ({
-            ...prev,
-            users: dbData.users && Array.isArray(dbData.users) && dbData.users.length > 0 ? dbData.users : prev.users,
-            sales: dbData.sales && Array.isArray(dbData.sales) ? dbData.sales : prev.sales,
-            products: dbData.products && Array.isArray(dbData.products) && dbData.products.length > 0 ? dbData.products : prev.products,
-            announcements: dbData.announcements && Array.isArray(dbData.announcements) ? dbData.announcements : prev.announcements,
-            withdrawRequests: dbData.withdrawRequests && Array.isArray(dbData.withdrawRequests) ? dbData.withdrawRequests : prev.withdrawRequests,
-            adminWallet: typeof dbData.adminWallet === 'number' ? dbData.adminWallet : prev.adminWallet,
-            currentUser: restoredUser || prev.currentUser,
-          }));
+          // Merge database data with local state, preferring DB users as authoritative
+          setState(prev => {
+            const freshUsers = dbData.users && Array.isArray(dbData.users) ? dbData.users.map(normalizeUser) : prev.users;
+
+            // If we didn't find a restored user above, but prev.currentUser exists, try matching it in freshUsers by id or email
+            let updatedCurrentUser = restoredUser || null;
+            if (!updatedCurrentUser && prev.currentUser && freshUsers && Array.isArray(freshUsers)) {
+              updatedCurrentUser = freshUsers.find((u: any) => u.id === prev.currentUser?.id || (prev.currentUser?.email && (u.email || '').toLowerCase() === (prev.currentUser.email || '').toLowerCase())) || null;
+            }
+
+            // Preserve local avatar if DB row lacks it
+            if (updatedCurrentUser && prev.currentUser?.avatar && (!updatedCurrentUser.avatar || updatedCurrentUser.avatar === '')) {
+              updatedCurrentUser = { ...updatedCurrentUser, avatar: prev.currentUser.avatar };
+            }
+
+            return {
+              ...prev,
+              users: freshUsers,
+              sales: dbData.sales && Array.isArray(dbData.sales) ? dbData.sales.map(normalizeSale).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : prev.sales,
+              products: Array.isArray(dbData.products) ? dbData.products.map(normalizeProduct) : prev.products,
+              announcements: dbData.announcements && Array.isArray(dbData.announcements) ? dbData.announcements.map((a: any) => ({ ...a, seenBy: a.seen_by || a.seenBy || [] })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : prev.announcements,
+              withdrawRequests: dbData.withdrawRequests && Array.isArray(dbData.withdrawRequests) ? dbData.withdrawRequests.map(normalizeWithdraw).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : prev.withdrawRequests,
+              adminWallet: typeof dbData.adminWallet === 'number' ? dbData.adminWallet : prev.adminWallet,
+              currentUser: updatedCurrentUser || null,
+            };
+          });
           console.log('Database initialized from server files');
-          console.log('Fetched products:', dbData.products);
+          console.log('Fetched products (raw):', dbData.products);
+          console.log('Fetched products (normalized):', Array.isArray(dbData.products) ? dbData.products.map(normalizeProduct) : dbData.products);
+          console.log('Fetched sales (raw):', dbData.sales);
+          console.log('Fetched sales (normalized):', Array.isArray(dbData.sales) ? dbData.sales.map(normalizeSale) : dbData.sales);
         }
       } catch (error) {
         console.error('Failed to fetch database state:', error);
@@ -177,16 +256,20 @@ const App: React.FC = () => {
     initializeDatabase();
   }, []); // Only run once on mount
 
-  // Persistent sync to localStorage on every state change (include currentUser id)
+  // Persistent sync to localStorage on every state change (include only minimal state; do not persist users array)
   useEffect(() => {
-    const { currentUser, ...persistentPart } = state;
-    const toSave = { ...persistentPart, currentUserId: state.currentUser?.id || null };
+    const toSave: any = {
+      currentUserId: state.currentUser?.id || null,
+      sales: state.sales,
+      announcements: state.announcements,
+      withdrawRequests: state.withdrawRequests
+    };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     } catch (e) {
       console.error('Failed to write app state to localStorage', e);
     }
-  }, [state]);
+  }, [state.sales, state.announcements, state.withdrawRequests, state.adminWallet, state.currentUser?.id]);
 
   // Real-time polling for database updates (every 5 seconds)
   // Merges local seen status with fetched data to prevent polling overwrites
@@ -229,26 +312,52 @@ const App: React.FC = () => {
 
         setState(prev => {
           // Get the fresh user data from the database
-          const freshUsers = dbData.users && Array.isArray(dbData.users) && dbData.users.length > 0 ? dbData.users : prev.users;
-          
+          const freshUsersRaw = dbData.users && Array.isArray(dbData.users) && dbData.users.length > 0 ? dbData.users : prev.users;
+          // Prefer local avatar values when DB returns empty avatar to avoid visual flicker and accidental loss
+          const freshUsers = freshUsersRaw.map((u: any) => {
+            const normalized = normalizeUser(u);
+            const prevUser = prev.users.find((pu: any) => pu.id === normalized.id);
+            if (prevUser && prevUser.avatar && (!normalized.avatar || normalized.avatar === '')) {
+              return { ...normalized, avatar: prevUser.avatar };
+            }
+            return normalized;
+          });
+
           // If there's a current user, find and update it from the fresh data
           let updatedCurrentUser = prev.currentUser;
           if (prev.currentUser && freshUsers.length > 0) {
             const freshCurrentUser = freshUsers.find(u => u.id === prev.currentUser!.id);
             if (freshCurrentUser) {
-              updatedCurrentUser = freshCurrentUser;
+              // Preserve local avatar if DB missing it
+              if ((!freshCurrentUser.avatar || freshCurrentUser.avatar === '') && prev.currentUser?.avatar) {
+                updatedCurrentUser = { ...freshCurrentUser, avatar: prev.currentUser.avatar };
+              } else {
+                updatedCurrentUser = freshCurrentUser;
+              }
             }
           }
 
           return {
             ...prev,
-            sales: dbData.sales && Array.isArray(dbData.sales) ? dbData.sales : prev.sales,
-            announcements: mergedAnnouncements,
-            withdrawRequests: dbData.withdrawRequests && Array.isArray(dbData.withdrawRequests) ? dbData.withdrawRequests : prev.withdrawRequests,
+            sales: dbData.sales && Array.isArray(dbData.sales) ? dbData.sales.map(normalizeSale).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) : prev.sales,
+            announcements: (mergedAnnouncements || []).map((a: any) => ({ ...a, seenBy: a.seen_by || a.seenBy || [] })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+            withdrawRequests: (() => {
+              if (!dbData.withdrawRequests || !Array.isArray(dbData.withdrawRequests)) return prev.withdrawRequests;
+              const normalized = dbData.withdrawRequests.map(normalizeWithdraw).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+              const pending = pendingWithdrawalsRef.current;
+              const prevMap = new Map(prev.withdrawRequests.map((r: any) => [r.id, r]));
+              // Prefer optimistic rows for pending IDs
+              let merged = normalized.map((w: any) => (pending.has(w.id) && prevMap.has(w.id) ? prevMap.get(w.id) : w));
+              // Include any prev entries not present in normalized (temporary IDs) at the top
+              const missingPrev = prev.withdrawRequests.filter((r: any) => !normalized.some((n: any) => n.id === r.id));
+              if (missingPrev.length) merged = [...missingPrev, ...merged];
+              return merged;
+            })(),
             users: freshUsers,
+            products: Array.isArray(dbData.products) ? dbData.products.map(normalizeProduct) : prev.products,
             adminWallet: typeof dbData.adminWallet === 'number' ? dbData.adminWallet : prev.adminWallet,
             currentUser: updatedCurrentUser,
-          };
+          }; 
         });
       } catch (error) {
         console.error('Error polling database:', error);
@@ -263,22 +372,26 @@ const App: React.FC = () => {
     setToasts(prev => [...prev, { id: Math.random().toString(), message, type }]);
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const emailInput = loginForm.email.trim().toLowerCase();
+    setLoginError('');
+
+    const emailInput = loginForm.email.trim();
     const passwordInput = loginForm.password.trim();
 
-    const user = state.users.find(u => 
-      u.email.toLowerCase() === emailInput && 
-      u.password === passwordInput
-    );
-
-    if (user) {
-      setState(prev => ({ ...prev, currentUser: user }));
-      setLoginError('');
-      showToast('Authentication Successful', 'success');
-    } else {
-      setLoginError('Invalid email or password.');
+    try {
+      const user = await login(emailInput, passwordInput);
+      if (user) {
+        // Ensure users list contains the user
+        setState(prev => ({ ...prev, users: prev.users.some(u => u.id === user.id) ? prev.users : [...prev.users, user], currentUser: user }));
+        setLoginForm({ email: '', password: '' });
+        showToast('Authentication Successful', 'success');
+      } else {
+        setLoginError('Invalid email or password.');
+      }
+    } catch (err) {
+      console.error('Login failed', err);
+      setLoginError('Login failed.');
     }
   };
 
@@ -327,11 +440,77 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString()
     };
 
-    // Update local state
+    // Update local state optimistically
     setState(prev => ({ ...prev, sales: [newSale, ...prev.sales] }));
 
     // Append to database file
-    await appendSale(newSale);
+    const res = await appendSale(newSale);
+
+    // Helper to reconcile a stored row with our optimistic sale
+    const reconcileWithStored = async (stored: any) => {
+      if (!stored) return false;
+      const normalizedStored = normalizeSale(stored);
+      setState(prev => {
+        // Replace optimistic placeholder with canonical stored row
+        let updated = prev.sales.map(s => s.id === newSale.id ? { ...s, ...normalizedStored, id: normalizedStored.id } : s);
+        // Move reconciled sale to the front
+        const idx = updated.findIndex((s: any) => s.id === normalizedStored.id);
+        if (idx > -1) {
+          const [item] = updated.splice(idx, 1);
+          updated.unshift(item);
+        }
+        // Ensure global sort newest-first
+        updated = updated.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        return { ...prev, sales: updated };
+      });
+      return true;
+    };
+
+    // If server returned a canonical stored row, reconcile immediately
+    if (res.ok && res.stored && res.stored.id) {
+      await reconcileWithStored(res.stored);
+    } else {
+      // Try an immediate reconciliation by fetching the latest DB state before reverting
+      try {
+        const dbState = await fetchDatabaseState();
+        if (dbState && Array.isArray(dbState.sales)) {
+          const match = dbState.sales.map(normalizeSale).find((s: any) =>
+            s.productId === newSale.productId &&
+            s.amount === newSale.amount &&
+            (s.employeeId === newSale.employeeId || (s.employeeEmail || '').toLowerCase() === (newSale.employeeEmail || '').toLowerCase()) &&
+            (s.customerEmail || '') === (newSale.customerEmail || '') &&
+            (s.customerPhone || '') === (newSale.customerPhone || '') &&
+            Math.abs(new Date(s.timestamp).getTime() - new Date(newSale.timestamp).getTime()) < 5000
+          );
+
+          if (match) {
+            // Replace temp with canonical match and move it to the front
+            setState(prev => {
+              let updated = prev.sales.map(s => s.id === newSale.id ? { ...s, ...match, id: match.id } : s);
+              const idx = updated.findIndex((s: any) => s.id === match.id);
+              if (idx > -1) {
+                const [item] = updated.splice(idx, 1);
+                updated.unshift(item);
+              }
+              updated = updated.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+              return { ...prev, sales: updated };
+            });
+            showToast('Sale saved (reconciled with server)', 'success');
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Error during immediate reconciliation:', e);
+      }
+
+      // If append failed and we couldn't reconcile, revert optimistic update
+      if (!res.ok) {
+        setState(prev => ({ ...prev, sales: prev.sales.filter(s => s.id !== newSale.id) }));
+        showToast('Failed to persist sale to server', 'error');
+        console.error('Append sale failed response:', res.body);
+        return;
+      }
+    }
 
     // Notify admins
     state.users.filter(u => u.role === 'admin').forEach(admin => {
@@ -450,11 +629,79 @@ const App: React.FC = () => {
     }));
 
     // Append to database
-    await appendWithdrawal(newReq);
+    const res = await appendWithdrawal(newReq as any);
+    if (res && res.ok && res.stored) {
+      const normalized = normalizeWithdraw(res.stored);
+      setState(prev => ({
+        ...prev,
+        withdrawRequests: prev.withdrawRequests.map(r => r.id === newReq.id ? normalized : r)
+      }));
+    } else if (!res || !res.ok) {
+      // If append failed, revert local change and refund wallet
+      setState(prev => ({
+        ...prev,
+        withdrawRequests: prev.withdrawRequests.filter(r => r.id !== newReq.id),
+        users: prev.users.map(u => u.id === updatedUser.id ? { ...u, wallet: u.wallet + amount } : u),
+        currentUser: prev.currentUser?.id === updatedUser.id ? { ...prev.currentUser, wallet: prev.currentUser.wallet + amount } : prev.currentUser
+      }));
+      showToast('Failed to initiate withdrawal', 'error');
+      return;
+    }
+
     await updateUser(updatedUser);
 
     showToast('Withdrawal initiated', 'success');
   };
+
+  const normalizeWithdraw = (w: any) => {
+    if (!w) return w;
+    return {
+      ...w,
+      employeeId: w.employee_id || w.employeeId || w.employee,
+      employeeEmail: w.employee_email || w.employeeEmail || '',
+      accountNumber: w.account_number || w.accountNumber || '',
+      amount: w.amount !== undefined ? Number(w.amount) : (w.amount || 0),
+      method: w.method || 'bKash',
+      status: w.status || 'pending',
+      timestamp: w.timestamp || new Date().toISOString()
+    };
+  };
+
+  // Try to reconcile a single withdrawal with the database: poll a few times until we see the expected status
+  const reconcileWithdrawal = async (id: string, expectedStatus: string, attempts = 4) => {
+    const delays = [200, 500, 1000, 2000];
+    const pending = pendingWithdrawalsRef.current;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const dbState = await fetchDatabaseState();
+        if (dbState && Array.isArray(dbState.withdrawRequests)) {
+          const found = dbState.withdrawRequests.find((r: any) => r.id === id);
+          if (found && found.status === expectedStatus) {
+            // canonical row found — clear pending and apply server state
+            pending.delete(id);
+            setState(prev => ({ ...prev, withdrawRequests: dbState.withdrawRequests.map(normalizeWithdraw).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+            return true;
+          }
+        }
+      } catch (e) {
+        console.warn('reconcileWithdrawal fetch failed:', e);
+      }
+      await new Promise(res => setTimeout(res, delays[Math.min(i, delays.length - 1)]));
+    }
+
+    // After attempts failed, remove from pending and fallback to canonical DB state
+    pending.delete(id);
+    try {
+      const dbState = await fetchDatabaseState();
+      if (dbState && Array.isArray(dbState.withdrawRequests)) {
+        setState(prev => ({ ...prev, withdrawRequests: dbState.withdrawRequests.map(normalizeWithdraw).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+      }
+    } catch (e) {
+      console.warn('Failed to fetch DB state after reconciliation attempts:', e);
+    }
+
+    return false;
+  }; 
 
   const completeWithdraw = async (id: string) => {
     const withdrawRequest = state.withdrawRequests.find(r => r.id === id);
@@ -468,7 +715,21 @@ const App: React.FC = () => {
     }));
 
     // Update in database
-    await updateWithdrawal(updatedRequest);
+    // Mark this id as pending to prevent poll overwrites
+    pendingWithdrawalsRef.current.add(id);
+    const res = await updateWithdrawal(updatedRequest as any);
+    if (res && res.ok && res.stored) {
+      const normalized = normalizeWithdraw(res.stored);
+      // Server returned canonical row — replace and clear pending
+      setState(prev => ({
+        ...prev,
+        withdrawRequests: prev.withdrawRequests.map(r => r.id === normalized.id ? normalized : (r.id === id ? normalized : r))
+      }));
+      pendingWithdrawalsRef.current.delete(normalized.id);
+    } else if (res && res.ok) {
+      // If server acknowledged but didn't return stored row, try to reconcile the single withdrawal with the server state
+      await reconcileWithdrawal(id, 'completed');
+    }
     
     showToast('Payment settled', 'success');
   };
@@ -500,13 +761,27 @@ const App: React.FC = () => {
       currentUser: updatedCurrentUser
     }));
 
-    await updateWithdrawal(updatedRequest);
+    // Mark pending to prevent poll overwrites
+    pendingWithdrawalsRef.current.add(id);
+    const res = await updateWithdrawal(updatedRequest as any);
+    if (res && res.ok && res.stored) {
+      const normalized = normalizeWithdraw(res.stored);
+      setState(prev => ({
+        ...prev,
+        withdrawRequests: prev.withdrawRequests.map(r => r.id === normalized.id ? normalized : (r.id === id ? normalized : r))
+      }));
+      pendingWithdrawalsRef.current.delete(normalized.id);
+    } else if (res && res.ok) {
+      // If server acknowledged but didn't return stored row, try to reconcile the single withdrawal with the server state
+      await reconcileWithdrawal(id, 'declined');
+    }
 
     showToast('Withdrawal declined; funds returned to employee', 'success');
   };
 
   const manageProduct = async (id: string | null, data: Partial<Product> | null) => {
     if (!id && data) {
+      const prevProducts = state.products;
       const newP: Product = { 
         id: Math.random().toString(36).substr(2, 9), 
         name: data.name!, 
@@ -517,23 +792,44 @@ const App: React.FC = () => {
         gallery: data.gallery || [], 
         mainImage: data.mainImage 
       };
-      const updatedProducts = [...state.products, newP];
+      const updatedProducts = [...prevProducts, newP];
       setState(prev => ({ ...prev, products: updatedProducts }));
       // Sync to database with the updated list
-      await updateProducts(updatedProducts);
+      const ok = await updateProducts(updatedProducts);
+      if (!ok) {
+        // Revert local state
+        setState(prev => ({ ...prev, products: prev.products.filter(p => p.id !== newP.id) }));
+        showToast('Failed to add product to database', 'error');
+        return;
+      }
       showToast('The product has been added', 'success');
     } else if (id && data) {
-      const updatedProducts = state.products.map(p => p.id === id ? { ...p, ...data } : p);
+      const prevProducts = state.products;
+      const updatedProducts = prevProducts.map(p => p.id === id ? { ...p, ...data } : p);
       setState(prev => ({ ...prev, products: updatedProducts }));
       // Sync to database
-      await updateProducts(updatedProducts);
+      const ok = await updateProducts(updatedProducts);
+      if (!ok) {
+        // Revert local state
+        setState(prev => ({ ...prev, products: prevProducts }));
+        showToast('Failed to update product on server', 'error');
+        return;
+      }
       showToast('Product updated', 'success');
     } else if (id && !data) {
       if (window.confirm("Delete this product?")) {
-        const updatedProducts = state.products.filter(p => p.id !== id);
+        const prevProducts = state.products;
+        const updatedProducts = prevProducts.filter(p => p.id !== id);
         setState(prev => ({ ...prev, products: updatedProducts }));
         // Sync to database
-        await updateProducts(updatedProducts);
+        const ok = await updateProducts(updatedProducts);
+        if (!ok) {
+          // Revert local state
+          setState(prev => ({ ...prev, products: prevProducts }));
+          setSelectedProductId(null);
+          showToast('Failed to remove product from server', 'error');
+          return;
+        }
         setSelectedProductId(null);
         showToast('The product has been removed', 'error');
       }
@@ -542,7 +838,27 @@ const App: React.FC = () => {
 
   const updateProfile = async (username: string, avatar: string, paymentAccounts: any) => {
     if (!state.currentUser) return;
-    const updatedUser = { ...state.currentUser, username, avatar, paymentAccounts };
+
+    // Flatten paymentAccounts into top-level fields to match server expectations
+    const payload: any = {
+      ...state.currentUser,
+      username,
+      avatar,
+    };
+
+    if (paymentAccounts) {
+      if (paymentAccounts.bKash !== undefined) payload.bkashNumber = paymentAccounts.bKash;
+      if (paymentAccounts.Nagad !== undefined) payload.nagadNumber = paymentAccounts.Nagad;
+      if (paymentAccounts.Rocket !== undefined) payload.rocketNumber = paymentAccounts.Rocket;
+    }
+
+    // Update local state with flattened keys for currentUser
+    const updatedUser = {
+      ...payload,
+      // keep old field names for display compatibility
+      paymentAccounts
+    };
+
     setState(prev => {
       const updatedUsers = prev.users.map(u => u.id === prev.currentUser?.id ? updatedUser : u);
       return {
@@ -551,9 +867,28 @@ const App: React.FC = () => {
         currentUser: updatedUsers.find(u => u.id === prev.currentUser?.id) || null
       };
     });
+
     // Sync to database
-    await updateUser(updatedUser);
-    showToast('Your account has been updated', 'success');
+    const res = await updateUser(payload);
+    if (!res) {
+      showToast('Failed to update account on server', 'error');
+      return;
+    }
+
+    // If server returned a stored row, reconcile avatar/ui with canonical DB value
+    if (res.stored && res.stored.avatar) {
+      // Update local state to reflect canonical DB avatar (public URL)
+      setState(prev => {
+        const updatedUsers = prev.users.map(u => u.id === prev.currentUser?.id ? { ...u, avatar: res.stored.avatar } : u);
+        return { ...prev, users: updatedUsers, currentUser: updatedUsers.find(u => u.id === prev.currentUser?.id) || null };
+      });
+    }
+
+    if (res.droppedColumns && res.droppedColumns.includes('password')) {
+      showToast('Account updated but password not stored in DB (missing column).', 'warning');
+    } else {
+      showToast('Your account has been updated', 'success');
+    }
   };
 
   const clearNotifications = async () => {
@@ -664,7 +999,7 @@ const App: React.FC = () => {
       onDateFilterChange={setDateFilter}
     >
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto">
-        {activeTab === 'dashboard' && <DashboardView state={state} onApprove={approveSale} onCreateSale={createSale} displaySales={displaySales} />}
+        {activeTab === 'dashboard' && <DashboardView state={state} isLoading={isLoadingDatabase} onApprove={approveSale} onCreateSale={createSale} displaySales={displaySales} />}
         {activeTab === 'sales' && <SalesView state={state} onApprove={approveSale} displaySales={displaySales} onCreateSale={createSale} />}
         {activeTab === 'products' && (
           selectedProductId ? (
@@ -684,7 +1019,7 @@ const App: React.FC = () => {
             />
           )
         )}
-        {activeTab === 'withdraw' && <WithdrawView state={state} onWithdraw={requestWithdraw} onComplete={completeWithdraw} onDecline={declineWithdraw} dateFilter={dateFilter} /> }
+        {activeTab === 'withdraw' && <WithdrawView state={state} onWithdraw={requestWithdraw} onComplete={completeWithdraw} onDecline={declineWithdraw} dateFilter={dateFilter} pendingIds={[...pendingWithdrawalsRef.current]} /> }
         {activeTab === 'employees' && state.currentUser.role === 'admin' && (
           selectedUserId ? (
             <UserDetailView 
@@ -705,12 +1040,32 @@ const App: React.FC = () => {
             <TeamHubView 
               state={state} 
               onCreate={async (e, p) => {
-                const newUser: User = { id: Math.random().toString(36).substr(2, 9), email: e, password: p, role: 'employee', wallet: 0, totalSalesCount: 0, notifications: [] };
+                const tempId = Math.random().toString(36).substr(2, 9);
+                const newUser: User = { id: tempId, email: e, password: p, role: 'employee', wallet: 0, totalSalesCount: 0, notifications: [] };
                 setState(prev => ({ ...prev, users: [...prev.users, newUser] }));
                 // Sync to database
-                await updateUser(newUser);
-                showToast('Partner Onboarded', 'success');
-              }} 
+                const res = await updateUser(newUser);
+                if (!res || !res.success) {
+                  // Revert local state
+                  setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== tempId) }));
+                  showToast('Failed to onboard partner (server error). Check console for details.', 'error');
+                  return;
+                }
+
+                // If server generated a real id (e.g., replacing non-UUID temp id), update local state
+                if (res.id && res.id !== tempId) {
+                  setState(prev => ({
+                    ...prev,
+                    users: prev.users.map(u => u.id === tempId ? { ...u, id: res.id } : u)
+                  }));
+                }
+
+                if (res.droppedColumns && Array.isArray(res.droppedColumns) && res.droppedColumns.includes('password')) {
+                  showToast('Partner created but password not stored (missing DB column). Agent cannot login until password column exists or Supabase Auth is used.', 'warning');
+                } else {
+                  showToast('Partner Onboarded', 'success');
+                }
+              }}
               onDelete={async (id) => {
                 if (window.confirm("Remove partner?")) {
                   setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }));
@@ -728,8 +1083,30 @@ const App: React.FC = () => {
           onAdd={async (t, c) => {
             const newAnn = { id: Math.random().toString(), title: t, content: c, timestamp: new Date().toISOString(), seenBy: [] };
             setState(prev => ({ ...prev, announcements: [newAnn, ...prev.announcements] }));
-            // Sync to database
-            await appendAnnouncement(newAnn);
+            // Sync to database and reconcile returned stored row (if present)
+            const res = await appendAnnouncement(newAnn as any);
+            if (res && res.ok && res.stored) {
+              const stored = res.stored;
+              // Normalize seen_by -> seenBy
+              const normalized = { ...stored, seenBy: stored.seen_by || stored.seenBy || [] };
+              setState(prev => ({ ...prev, announcements: prev.announcements.map(a => a.id === newAnn.id ? normalized : a).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+            } else if (!res || !res.ok) {
+              // append failed — revert and inform
+              setState(prev => ({ ...prev, announcements: prev.announcements.filter(a => a.id !== newAnn.id) }));
+              showToast('Failed to publish broadcast', 'error');
+              return;
+            } else {
+              // Acknowledged but no stored row returned — fetch DB to reconcile
+              try {
+                const db = await fetchDatabaseState();
+                if (db && Array.isArray(db.announcements)) {
+                  setState(prev => ({ ...prev, announcements: db.announcements.map((a: any) => ({ ...a, seenBy: a.seen_by || a.seenBy || [] })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+                }
+              } catch (e) {
+                console.warn('Failed to reconcile announcements after append:', e);
+              }
+            }
+
             state.users.forEach(u => addNotificationToUser(u.id, { id: Math.random().toString(), message: `New Broadcast: ${t}`, timestamp: new Date().toISOString(), read: false, type: 'announcement' }));
             showToast('Broadcast Published', 'info');
           }}
@@ -741,8 +1118,31 @@ const App: React.FC = () => {
                 ...prev,
                 announcements: prev.announcements.map(a => a.id === announcementId ? updated : a)
               }));
-              await updateAnnouncement(updated);
-              showToast('Broadcast Updated', 'success');
+              const res = await updateAnnouncement(updated);
+              if (res && res.ok && res.stored) {
+                const stored = res.stored;
+                const normalized = { ...stored, seenBy: stored.seen_by || stored.seenBy || [] };
+                setState(prev => ({ ...prev, announcements: prev.announcements.map(a => a.id === announcementId ? normalized : a).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+              } else if (!res || !res.ok) {
+                // Revert local optimistic edit if update failed
+                const db = await fetchDatabaseState();
+                if (db && Array.isArray(db.announcements)) {
+                  setState(prev => ({ ...prev, announcements: db.announcements.map((a: any) => ({ ...a, seenBy: a.seen_by || a.seenBy || [] })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+                }
+                showToast('Failed to update broadcast', 'error');
+                return;
+              } else {
+                // Acknowledged but no stored row returned — fetch DB to reconcile
+                try {
+                  const db = await fetchDatabaseState();
+                  if (db && Array.isArray(db.announcements)) {
+                    setState(prev => ({ ...prev, announcements: db.announcements.map((a: any) => ({ ...a, seenBy: a.seen_by || a.seenBy || [] })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) }));
+                  }
+                } catch (e) {
+                  console.warn('Failed to reconcile announcements after update:', e);
+                }
+                showToast('Broadcast Updated', 'success');
+              }
             }
           }}
           onDelete={async (announcementId) => {

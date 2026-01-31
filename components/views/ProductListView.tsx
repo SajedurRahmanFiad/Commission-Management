@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AppState, Product } from '../../types';
 import { Icons } from '../../constants';
 import { Button } from '../shared';
+import { searchProducts } from '../../services/databaseService';
 import Modal from '../shared/Modal';
 import FloatingPlus from '../shared/FloatingPlus';
 
@@ -32,17 +33,13 @@ const ProductListView: React.FC<ProductListViewProps> = ({ state, isAdmin, onSel
     setLoading(true);
     const id = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`);
+        // Use the service helper which normalizes DB products to UI shape
+        const data = await searchProducts(q);
         if (!mounted) return;
-        if (res.ok) {
-          const data = await res.json();
-          setDisplayProducts(data);
-        } else {
-          setDisplayProducts([]);
-        }
+        setDisplayProducts(data);
       } catch (e) {
         console.error('Product search error', e);
-        setDisplayProducts([]);
+        if (mounted) setDisplayProducts([]);
       } finally {
         if (mounted) setLoading(false);
       }

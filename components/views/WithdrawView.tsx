@@ -28,33 +28,30 @@ const WithdrawView: React.FC<WithdrawViewProps> = ({ state, onWithdraw, onComple
   }; 
   const currentAccountNum = currentAccounts[form.method as keyof typeof currentAccounts] || '';
   const displayRequests = useMemo(() => {
-    const base = isEmployee ? state.withdrawRequests.filter(r => r.employeeId === state.currentUser?.id) : state.withdrawRequests;
-    if (!dateFilter || dateFilter.type === 'all') return base;
+    let results = isEmployee ? state.withdrawRequests.filter(r => r.employeeId === state.currentUser?.id) : state.withdrawRequests.slice();
+    if (!dateFilter || dateFilter.type === 'all') return results.slice().sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const now = Date.now();
     if (dateFilter.type === 'today') {
       const today = new Date();
-      return base.filter(r => {
+      results = results.filter(r => {
         const d = new Date(r.timestamp);
         return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
       });
-    }
-    if (dateFilter.type === '7d') {
+    } else if (dateFilter.type === '7d') {
       const cutoff = now - 7 * 24 * 60 * 60 * 1000;
-      return base.filter(r => new Date(r.timestamp).getTime() >= cutoff);
-    }
-    if (dateFilter.type === '30d') {
+      results = results.filter(r => new Date(r.timestamp).getTime() >= cutoff);
+    } else if (dateFilter.type === '30d') {
       const cutoff = now - 30 * 24 * 60 * 60 * 1000;
-      return base.filter(r => new Date(r.timestamp).getTime() >= cutoff);
-    }
-    if (dateFilter.type === 'custom' && dateFilter.from) {
+      results = results.filter(r => new Date(r.timestamp).getTime() >= cutoff);
+    } else if (dateFilter.type === 'custom' && dateFilter.from) {
       const from = new Date(dateFilter.from).getTime();
       const to = dateFilter.to ? new Date(dateFilter.to).getTime() : Date.now();
-      return base.filter(r => {
+      results = results.filter(r => {
         const t = new Date(r.timestamp).getTime();
         return t >= from && t <= to;
       });
     }
-    return base;
+    return results.slice().sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [state.withdrawRequests, state.currentUser, isEmployee, dateFilter]);
 
   const [query, setQuery] = useState('');
@@ -194,8 +191,8 @@ const WithdrawView: React.FC<WithdrawViewProps> = ({ state, onWithdraw, onComple
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-center">Amount</th>
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-center">Gateway</th>
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Target Account</th>
-                {/* Status column removed — action column will show status when applicable */}
-                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>
+                {isEmployee && <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-center align-middle">Status</th>}
+                {!isEmployee && <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -225,25 +222,44 @@ const WithdrawView: React.FC<WithdrawViewProps> = ({ state, onWithdraw, onComple
                     </div>
                   </td>
 
+                  {isEmployee && (
+                    <td className="px-6 py-3 text-center align-middle">
+                      {r.status === 'pending' ? (
+                        <span className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase bg-amber-50 text-amber-600">Pending</span>
+                      ) : r.status === 'completed' ? (
+                        <span className="text-emerald-500 font-bold uppercase text-[9px] tracking-widest px-4">Paid</span>
+                      ) : (
+                        <span className="text-red-500 font-bold uppercase text-[9px] tracking-widest px-4">Declined</span>
+                      )}
+                    </td>
+                  )}
+
                   {!isEmployee && (
                     <td className="px-6 py-3 text-right">
                       {r.status === 'pending' ? (
-                        <div className="flex items-center justify-end gap-3">
-                          <button
-                            title="Decline"
-                            onClick={() => { if (window.confirm('Decline this withdrawal request?')) onDecline(r.id); }}
-                            className="h-8 w-8 rounded-full flex items-center justify-center border border-slate-100 text-red-500 hover:bg-red-50 transition-colors"
-                          >
-                            <Icons.X />
-                          </button>
-                          <button
-                            title="Mark as Paid"
-                            onClick={() => onComplete(r.id)}
-                            className="h-8 w-8 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 transition-colors"
-                          >
-                            <Icons.Check />
-                          </button>
-                        </div>
+                        // If pending reconciliation, show a spinner instead of actionable buttons
+                        pendingIds && pendingIds.includes(r.id) ? (
+                          <div className="h-8 w-8 rounded-full flex items-center justify-center border border-slate-100 text-slate-400">
+                            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25"/><path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-3">
+                            <button
+                              title="Decline"
+                              onClick={() => { if (window.confirm('Decline this withdrawal request?')) onDecline(r.id); }}
+                              className="h-8 w-8 rounded-full flex items-center justify-center border border-slate-100 text-red-500 hover:bg-red-50 transition-colors"
+                            >
+                              <Icons.X />
+                            </button>
+                            <button
+                              title="Mark as Paid"
+                              onClick={() => onComplete(r.id)}
+                              className="h-8 w-8 rounded-full flex items-center justify-center bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100 transition-colors"
+                            >
+                              <Icons.Check />
+                            </button>
+                          </div>
+                        )
                       ) : r.status === 'completed' ? (
                         <span className="text-emerald-500 font-bold uppercase text-[9px] tracking-widest px-4">Paid</span>
                       ) : (
@@ -254,7 +270,7 @@ const WithdrawView: React.FC<WithdrawViewProps> = ({ state, onWithdraw, onComple
                 </tr>
               ))}
               {displayRequestsLocal.length === 0 && (
-                <tr><td colSpan={6} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest text-sm italic font-sans">No Payout Records</td></tr>
+                <tr><td colSpan={isEmployee ? 4 : 5} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest text-sm italic font-sans">No Payout Records</td></tr>
               )}
             </tbody>
           </table>

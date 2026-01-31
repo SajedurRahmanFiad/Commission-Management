@@ -89,7 +89,7 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                 {!isEmployee && <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Agent</th>}
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Customer</th>
                 {(isEmployee || isAdmin) && <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Product</th>}
-                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">Received amount</th>
+                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">{isAdmin ? 'Admin amount' : 'Received amount'}</th>
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">Paid by</th>
                 {/* Status column removed — action column will show status when applicable */}
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>
@@ -119,7 +119,22 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                       </div>
                     </td>
                     {(isEmployee || isAdmin) && <td className="px-6 py-3 text-xs font-bold text-slate-700">{sale.productName || product?.name || '—'}</td>} 
-                    <td className="px-6 py-3 text-sm font-bold text-slate-800 text-center">৳{receivedAmount.toLocaleString()}</td>
+                    {/* Show admin share to admins, employee share to employees */}
+                    {(() => {
+                      // Compute admin vs employee shares
+                      let adminShare = 0;
+                      let employeeShare = Number(sale.amount) || 0;
+                      if (product?.pricingModel === 'fixed') {
+                        adminShare = product.adminShare || 0;
+                        employeeShare = Math.max(0, (Number(sale.amount) || 0) - adminShare);
+                      } else if (product?.pricingModel === 'commission') {
+                        const percent = product.commissionPercent || 0;
+                        adminShare = Math.round(((percent || 0) / 100) * (Number(sale.amount) || 0));
+                        employeeShare = Math.max(0, (Number(sale.amount) || 0) - adminShare);
+                      }
+                      const displayAmount = isAdmin ? adminShare : employeeShare;
+                      return <td className="px-6 py-3 text-sm font-bold text-slate-800 text-center">৳{displayAmount.toLocaleString()}</td>;
+                    })()}
                     <td className="px-6 py-3 text-center">
                       <span
                           className={`text-[10px] font-bold px-3 py-1.5 rounded-lg ${
@@ -156,7 +171,7 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                 );
               })}     
               {localSales.length === 0 && (
-                <tr><td colSpan={isEmployee ? 5 : 6} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest text-sm italic font-sans">No Transaction Records</td></tr>
+                <tr><td colSpan={isEmployee ? 5 : 6} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest text-sm italic font-sans">No Sales Records</td></tr>
               )}
             </tbody>
           </table>

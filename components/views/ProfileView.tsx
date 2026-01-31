@@ -22,6 +22,14 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdate, uploadFile })
       setUploading(false);
       if (filePath) {
         setAvatar(filePath);
+        // Auto-save avatar to the server immediately so the avatar is persisted without requiring an extra Save click
+        try {
+          // onUpdate may be async (App.updateProfile) so await it
+          await onUpdate(username, filePath, paymentAccounts);
+        } catch (err) {
+          console.error('Auto-save avatar failed', err);
+          alert('Avatar uploaded but failed to save to profile. Check console for details.');
+        }
       } else {
         alert('Failed to upload avatar');
       }
@@ -32,7 +40,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdate, uploadFile })
     <div className="max-w-3xl mx-auto space-y-10 text-slate-900">
       <div className="bg-white rounded-[1rem] p-8 md:p-16 shadow-sm border border-slate-200 flex flex-col items-center">
         <div className="relative group cursor-pointer w-40 h-40 mb-10 shadow-2xl rounded-[1rem] overflow-hidden border-4 border-white" onClick={() => !uploading && document.getElementById('av-up')?.click()}>
-          {avatar ? <img src={avatar} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white text-5xl font-bold uppercase tracking-tighter">{username.charAt(0) || user.email.charAt(0)}</div>}
+          {avatar ? <img src={avatar} className="w-full h-full object-cover" /> : (() => { const display = (username || user?.email || '') || ''; const initial = (display && typeof display === 'string' && display.length) ? display.charAt(0).toUpperCase() : '—'; return <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white text-5xl font-bold uppercase tracking-tighter">{initial}</div>; })()}
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm">
             <span className="text-white text-[10px] font-bold uppercase tracking-widest">{uploading ? 'Uploading...' : 'Update Photo'}</span>
           </div>

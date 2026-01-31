@@ -85,9 +85,9 @@ const TeamHubView: React.FC<TeamHubViewProps> = ({ state, onCreate, onDelete, on
               <Icons.Trash />
             </button>
             <div className="flex items-center gap-5 mb-8">
-              {e.avatar ? <img src={e.avatar} className="h-16 w-16 rounded-xl object-cover shadow-md" /> : <div className="h-16 w-16 bg-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold text-white uppercase">{e.email.charAt(0)}</div>}
+              {e.avatar ? <img src={e.avatar} className="h-16 w-16 rounded-xl object-cover shadow-md" /> : (() => { const email = e?.email || ''; const initial = (email && typeof email === 'string' && email.length) ? email.charAt(0).toUpperCase() : '—'; return <div className="h-16 w-16 bg-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold text-white uppercase">{initial}</div>; })()}
               <div>
-                <p className="font-bold text-slate-800 text-lg">{e.username || e.email.split('@')[0]}</p>
+                <p className="font-bold text-slate-800 text-lg">{e.username || (e.email || '').split('@')[0]}</p>
                 <p className="text-[13px] font-bold text-slate-400">{e.email}</p>
               </div>
             </div>

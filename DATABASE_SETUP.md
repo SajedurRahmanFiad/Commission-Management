@@ -2,7 +2,14 @@
 
 ## Overview
 
-The Commission Management system now uses a real-time database approach with JSON files stored in the `/database` folder. All data from the frontend is appended to these files rather than replacing them, ensuring data persistence and audit trails.
+The Commission Management system supports two persistence modes:
+
+- Supabase (recommended) — preferred for production/demo with persistence across restarts.
+- Local in-memory / JSON (development fallback) — used when SUPABASE env vars are not configured.
+
+If Supabase is configured via environment variables, the server will persist data into the configured Supabase project and Storage bucket. If not configured, the server will continue to operate with an in-memory fallback (non-persistent) to preserve developer experience.
+
+> Tip: For local development with persistence, set up a Supabase project and add the required tables (see "Supabase schema" section below).
 
 ## Architecture
 
@@ -147,6 +154,9 @@ npm run dev
     "role": "admin",
     "wallet": 50000,
     "totalSalesCount": 150,
+    "bkash_number": "0123456789",
+    "nagad_number": "01700000000",
+    "rocket_number": "01900000000",
     "notifications": []
   }
 ]
@@ -221,6 +231,73 @@ Perform database operations.
 1. Hard refresh (Ctrl+Shift+R in Chrome)
 2. Check browser console for fetch errors
 3. Verify backend is running and responsive
+
+## Supabase schema (recommended)
+
+If you plan to use Supabase for persistence, create the following tables (example SQL). Adjust types to match your project conventions.
+
+```sql
+-- profiles
+create table profiles (
+  id text primary key,
+  email text unique not null,
+  password text,
+  username text,
+  avatar text,
+  role text default 'employee',
+  wallet numeric default 0,
+  total_sales_count integer default 0,
+  notifications jsonb default '[]'
+);
+
+-- products
+create table products (
+  id text primary key,
+  name text,
+  description text,
+  pricing_model text,
+  admin_share numeric,
+  commission_percent numeric,
+  gallery jsonb default '[]'
+);
+
+-- sales
+create table sales (
+  id text primary key,
+  employee_id text,
+  employee_email text,
+  customer_email text,
+  customer_phone text,
+  product_id text,
+  product_name text,
+  amount numeric,
+  status text,
+  timestamp timestamptz
+);
+
+-- announcements
+create table announcements (
+  id text primary key,
+  title text,
+  content text,
+  timestamp timestamptz,
+  seen_by jsonb default '[]'
+);
+
+-- withdraw_requests
+create table withdraw_requests (
+  id text primary key,
+  employee_id text,
+  employee_email text,
+  amount numeric,
+  method text,
+  account_number text,
+  status text,
+  timestamp timestamptz
+);
+```
+
+Ensure the `profiles` table includes a `password` column if you want to support plaintext demo logins (NOT recommended for production). For production, use Supabase Auth and avoid storing plaintext passwords.
 
 ## Future Enhancements
 

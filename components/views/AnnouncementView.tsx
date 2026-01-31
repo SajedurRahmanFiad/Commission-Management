@@ -102,7 +102,7 @@ const AnnouncementView: React.FC<AnnouncementViewProps> = ({ state, onAdd, onEdi
             <input type="text" required placeholder="Subject" className="w-full px-4 py-3 md:px-6 md:py-4 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
             <textarea required placeholder="Message..." className="w-full h-40 px-4 py-3 md:px-6 md:py-5 rounded-xl bg-slate-50 border border-slate-200 outline-none resize-none text-sm font-medium leading-relaxed" value={form.content} onChange={e => setForm({ ...form, content: e.target.value })}></textarea>
             <button type="submit" className="w-full py-3 md:py-5 bg-indigo-600 text-white rounded-xl font-bold uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-3 shadow-xl shadow-indigo-100 active:scale-[0.98] hover:bg-indigo-700 transition-all">
-              <Icons.Speakerphone /> Announce
+              <Icons.Speakerphone /> Publish Notice
             </button>
           </form>
         </div>
@@ -185,7 +185,7 @@ const AnnouncementView: React.FC<AnnouncementViewProps> = ({ state, onAdd, onEdi
             </div>
           );
         })}
-        {state.announcements.length === 0 && <div className="text-center py-24 text-slate-300 font-bold uppercase tracking-[0.3em] text-[10px]">No new announcements</div>}
+        {state.announcements.length === 0 && <div className="text-center py-24 text-slate-300 font-bold uppercase tracking-[0.3em] text-[10px]">No new notices</div>}
       </div>
 
       {/* Edit Modal */}
@@ -222,7 +222,7 @@ const AnnouncementView: React.FC<AnnouncementViewProps> = ({ state, onAdd, onEdi
               onClick={handleSaveEdit}
               className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 active:scale-[0.98] hover:bg-indigo-700 transition-all"
             >
-              <Icons.Check /> Save Changes
+              <Icons.Check /> Save
             </button>
             <button
               onClick={() => setEditingId(null)}

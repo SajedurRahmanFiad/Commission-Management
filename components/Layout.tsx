@@ -32,8 +32,9 @@ export const formatDateTime = (isoString: string) => {
 };
 
 const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, activeTab, setActiveTab, onClearNotifications, badgeCounts, contentKey, dateFilter, onDateFilterChange }) => {
-  const userRole = currentUser.role;
-  const displayName = currentUser.username || currentUser.email;
+  const userRole = currentUser?.role;
+  const displayName = (currentUser && (currentUser.username || currentUser.email)) || '—';
+  const displayInitial = displayName && typeof displayName === 'string' && displayName.length ? displayName.charAt(0).toUpperCase() : '—';
   const [showNotif, setShowNotif] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -56,6 +57,15 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
     return () => window.removeEventListener('click', handler);
   }, [showProfileMenu]);
 
+  // Content animation when switching tabs or contentKey changes
+  const [contentAnimClass, setContentAnimClass] = useState('');
+  useEffect(() => {
+    // apply a short enter animation class then remove it
+    setContentAnimClass('animate-in fade-in slide-in-from-bottom-4 duration-300');
+    const t = setTimeout(() => setContentAnimClass(''), 350);
+    return () => clearTimeout(t);
+  }, [activeTab, contentKey]);
+
   // Default badge counts if not provided
   const badges = badgeCounts || { sales: 0, withdraw: 0, announcements: 0 };
 
@@ -65,7 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
     { id: 'products', label: 'Products', icon: Icons.Tag },
     ...(userRole === 'admin' ? [{ id: 'employees', label: 'Agents Hub', icon: Icons.Users }] : []),
     { id: 'withdraw', label: 'Withdraw', icon: Icons.Cash },
-    { id: 'announcements', label: 'Announcements', icon: Icons.Speakerphone },
+    { id: 'announcements', label: 'Notices', icon: Icons.Speakerphone },
     { id: 'profile', label: 'My Profile', icon: Icons.UserCircle },
   ];
 
@@ -128,6 +138,8 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
     </nav>
   );
 
+  const activeLabel = menuItems.find(m => m.id === activeTab)?.label || (activeTab === 'employees' ? 'Agents' : activeTab.replace('-', ' '));
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       {/* Sidebar Desktop */}
@@ -149,7 +161,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
               <img src={currentUser.avatar} alt="Profile" className="h-9 w-9 rounded-lg object-cover border border-white" />
             ) : (
               <div className="h-9 w-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
-                {displayName.charAt(0).toUpperCase()}
+                {displayInitial}
               </div>
             )}
             <div className="overflow-hidden">
@@ -173,7 +185,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
           <div className="flex items-center gap-3">
             {/* Mobile menu button removed: bottom nav used for mobile navigation */}
             <h2 className="text-lg font-semibold text-slate-800 capitalize truncate max-w-[150px] md:max-w-none">
-              {activeTab === 'employees' ? 'Agents' : activeTab.replace('-', ' ')}
+              {activeLabel}
             </h2>
           </div>
           {/* Right-aligned controls: filter (top) and credit (below) */}
@@ -231,63 +243,64 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
                 {currentUser.avatar ? (
                   <img src={currentUser.avatar} alt="Profile" className="h-full w-full object-cover" />
                 ) : (
-                  <span className="text-sm font-bold text-indigo-600 uppercase">{(currentUser.username || currentUser.email || '').charAt(0)}</span>
+                  <span className="text-sm font-bold text-indigo-600 uppercase">{displayInitial}</span>
                 )}
               </button>
 
-              {showProfileMenu && (
-                <div ref={profileMenuRef} className="absolute right-0 top-full mt-2 w-44 bg-white border border-slate-100 rounded-xl shadow-lg p-2 z-50">
-                  <button onClick={() => { setActiveTab('profile'); setShowProfileMenu(false); }} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md">My Profile</button>
-                  <button onClick={() => { setShowProfileMenu(false); onLogout(); }} className="w-full text-left px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-50 rounded-md">Log Out</button>
-                </div>
-              )}
+              <div
+                ref={profileMenuRef}
+                role="menu"
+                aria-hidden={!showProfileMenu}
+                className={`absolute right-0 top-full mt-2 w-44 bg-white border border-slate-100 rounded-xl shadow-lg p-2 z-50 transform transition-all duration-200 origin-top-right ${showProfileMenu ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-95 -translate-y-2 pointer-events-none'}`}
+              >
+                <button onClick={() => { setActiveTab('profile'); setShowProfileMenu(false); }} className="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md">My Profile</button>
+                <button onClick={() => { setShowProfileMenu(false); onLogout(); }} className="w-full text-left px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-50 rounded-md">Log Out</button>
+              </div> 
             </div>
           </div>
         </header>
 
-        {showFilterMobile && (
-          <div className="fixed inset-0 z-[9999] bg-white p-6">
-            <div className="max-w-md mx-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="text-sm font-bold">Filter by date</h4>
-                <button onClick={() => setShowFilterMobile(false)} className="p-2 text-slate-500"><Icons.X /></button>
-              </div>
-
-              <select value={dateFilter?.type || 'all'} onChange={e => {
-                const v = e.target.value as any;
-                if (v !== 'custom') {
-                  onDateFilterChange && onDateFilterChange({ type: v });
-                  setShowFilterMobile(false);
-                } else {
-                  setTempFrom(dateFilter?.from);
-                  setTempTo(dateFilter?.to);
-                  setShowCustomPanel(true);
-                }
-              }} className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 mb-4">
-                <option value="all">All time</option>
-                <option value="today">Today</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="custom">Custom range</option>
-              </select>
-
-              {showCustomPanel && (
-                <div className="mb-4">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">From</label>
-                  <input type="datetime-local" value={tempFrom || ''} onChange={e => setTempFrom(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 mb-3" />
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">To</label>
-                  <input type="datetime-local" value={tempTo || ''} onChange={e => setTempTo(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200" />
-                  <div className="flex gap-2 mt-3">
-                    <button onClick={() => { if (!tempFrom) return alert('Select a start date/time'); onDateFilterChange && onDateFilterChange({ type: 'custom', from: tempFrom, to: tempTo }); setShowCustomPanel(false); setShowFilterMobile(false); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold">Apply</button>
-                    <button onClick={() => { setShowCustomPanel(false); }} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold">Cancel</button>
-                  </div>
-                </div>
-              )}
+        <div aria-hidden={!showFilterMobile} className={`fixed inset-0 z-[9999] p-6 transition-colors duration-200 ${showFilterMobile ? 'bg-white pointer-events-auto' : 'bg-white/0 pointer-events-none'}`}>
+          <div className={`max-w-md mx-auto transition-transform duration-200 ${showFilterMobile ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-sm font-bold">Filter by date</h4>
+              <button onClick={() => setShowFilterMobile(false)} className="p-2 text-slate-500"><Icons.X /></button>
             </div>
-          </div>
-        )}
 
-        <div ref={contentRef} className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 py-6 md:py-8 pb-28 md:pb-8">
+            <select value={dateFilter?.type || 'all'} onChange={e => {
+              const v = e.target.value as any;
+              if (v !== 'custom') {
+                onDateFilterChange && onDateFilterChange({ type: v });
+                setShowFilterMobile(false);
+              } else {
+                setTempFrom(dateFilter?.from);
+                setTempTo(dateFilter?.to);
+                setShowCustomPanel(true);
+              }
+            }} className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 mb-4">
+              <option value="all">All time</option>
+              <option value="today">Today</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="custom">Custom range</option>
+            </select>
+
+            {showCustomPanel && (
+              <div className="mb-4">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">From</label>
+                <input type="datetime-local" value={tempFrom || ''} onChange={e => setTempFrom(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 mb-3" />
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">To</label>
+                <input type="datetime-local" value={tempTo || ''} onChange={e => setTempTo(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200" />
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => { if (!tempFrom) return alert('Select a start date/time'); onDateFilterChange && onDateFilterChange({ type: 'custom', from: tempFrom, to: tempTo }); setShowCustomPanel(false); setShowFilterMobile(false); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold">Apply</button>
+                  <button onClick={() => { setShowCustomPanel(false); }} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div ref={contentRef} className={`flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 py-6 md:py-8 pb-28 md:pb-8 ${contentAnimClass}`}>
           {children}
 
           {/* Mobile-only full credit at the bottom of page (requires scroll to see) */}
@@ -315,9 +328,10 @@ const Layout: React.FC<LayoutProps> = ({ children, currentUser, onLogout, active
                     // ensure content scrolls to top on mobile tab navigation
                     try { contentRef.current?.scrollTo?.({ top: 0, behavior: 'auto' }); } catch (e) {}
                   }}
-                  className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] text-slate-600 py-1 ${activeTab === item.id ? 'text-indigo-600' : ''}`}
+                  aria-current={activeTab === item.id ? 'page' : undefined}
+                  className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] py-1 transition-all ${activeTab === item.id ? 'text-indigo-600 rounded-t-xl' : 'text-slate-600 hover:text-indigo-600'}`}
                 >
-                  <div className="relative transform scale-90">
+                  <div className={`relative flex items-center justify-center ${activeTab === item.id ? 'bg-indigo-100 text-indigo-600 p-2 rounded-lg scale-105' : 'transform scale-90'}`}>
                     <item.icon />
                     {badgeCount > 0 && (
                       <span className="absolute -top-1 -right-2 inline-flex items-center justify-center h-4 w-4 rounded-full bg-red-500 text-white text-[9px] font-bold">

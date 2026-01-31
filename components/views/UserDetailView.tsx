@@ -35,7 +35,7 @@ const UserDetailView: React.FC<UserDetailViewProps> = ({ user, onClose, onUpdate
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-6">
           <div className="flex items-center gap-6">
             <div className="h-24 w-24 rounded-xl overflow-hidden shadow-md">
-              {user.avatar ? <img src={user.avatar} className="h-full w-full object-cover" /> : <div className="h-full w-full bg-indigo-600 flex items-center justify-center text-4xl font-bold text-white uppercase">{user.email.charAt(0)}</div>}
+              {user.avatar ? <img src={user.avatar} className="h-full w-full object-cover" /> : (() => { const email = user?.email || ''; const initial = (email && typeof email === 'string' && email.length) ? email.charAt(0).toUpperCase() : '—'; return <div className="h-full w-full bg-indigo-600 flex items-center justify-center text-4xl font-bold text-white uppercase">{initial}</div>; })()}
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-800 tracking-tight">{displayName}</h2>

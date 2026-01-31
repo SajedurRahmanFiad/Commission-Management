@@ -2,7 +2,15 @@
 
 ## What Was Changed
 
-Your Commission Management system has been upgraded with a real-time database system that uses JSON files for persistent storage. Here's what's new:
+Your Commission Management system has been upgraded to support Supabase as a production database instead of local JSON files. The app still supports a local in-memory fallback for development when Supabase is not configured.
+
+**Supabase notes:**
+- Create a Supabase project and tables (`profiles`, `products`, `sales`, `announcements`, `withdraw_requests`) matching the schema in the repo docs.
+- If you want to keep simple email/password logins (plaintext for demo only), add a `password` column (text) to the `profiles` table. Otherwise, use Supabase Auth (recommended for production).
+- The server uses `SUPABASE_SERVICE_ROLE_KEY` for server-side writes (keep this secret). Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to a local `.env`.
+- A `.env.example` has been added to the project root. Copy it to `.env` and fill values.
+
+Here's what's new:
 
 ### New Files Created
 1. **`services/databaseService.ts`** - Service layer for all database operations
