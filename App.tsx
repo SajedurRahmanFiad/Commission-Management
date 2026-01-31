@@ -628,8 +628,8 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
         <div className="max-w-md w-full bg-white rounded-[2rem] shadow-2xl border border-slate-200 p-12 animate-in fade-in zoom-in duration-300">
           <div className="text-center mb-10">
-            <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold mx-auto mb-6 shadow-xl shadow-indigo-100">C</div>
-            <h2 className="text-3xl font-bold text-slate-800 tracking-tight">CommishPro</h2>
+            <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-4xl font-bold mx-auto mb-6 shadow-xl shadow-indigo-100">S</div>
+            <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Sales Panel</h2>
             <p className="text-slate-400 mt-2 font-medium">Internal Sales & Wallet Portal</p>
           </div>
           <form className="space-y-6" onSubmit={handleLogin}>
@@ -644,11 +644,8 @@ const App: React.FC = () => {
                 <input type="password" required className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 outline-none transition-all font-medium text-slate-700" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} placeholder="••••••••" />
               </div>
             </div>
-            <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-[0.98]">Enter Portal</button>
+            <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-[0.98]">Enter</button>
           </form>
-          <div className="mt-8 text-center pt-6 border-t border-slate-50">
-            <p className="text-[9px] font-bold text-slate-300 uppercase tracking-[0.2em]">Admin: admin@system.com / admin</p>
-          </div>
         </div>
       </div>
     );
