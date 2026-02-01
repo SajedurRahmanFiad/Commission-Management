@@ -181,7 +181,7 @@ const AnnouncementView: React.FC<AnnouncementViewProps> = ({ state, onAdd, onEdi
                   )}
                 </div>
               </div>
-              <p className="text-sm text-slate-600 leading-loose whitespace-pre-wrap font-medium" dangerouslySetInnerHTML={{ __html: a.content }}></p>
+              <div className="text-slate-600 leading-loose whitespace-pre-wrap font-medium" dangerouslySetInnerHTML={{ __html: a.content }}></div>
             </div>
           );
         })}
