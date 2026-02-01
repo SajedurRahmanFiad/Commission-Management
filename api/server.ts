@@ -1,3 +1,6 @@
+// This file is now deprecated. All API endpoints have been migrated to Vercel serverless functions in the api/ directory.
+// You can safely remove this file from the repository.
+
 import express, { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
