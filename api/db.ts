@@ -50,12 +50,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return acc + (product.admin_share || product.adminShare || 0);
         }, 0);
 
+      // Normalize withdrawal fields for frontend (employeeId, employeeEmail)
+      const normalizedWithdrawals = (withdrawals || []).map((w: any) => ({
+        ...w,
+        employeeId: w.employee_id || w.employeeId || '',
+        employeeEmail: w.employee_email || w.employeeEmail || '',
+      }));
+
       return res.status(200).json({
         users,
         sales,
         products,
         announcements,
-        withdrawRequests: withdrawals,
+        withdrawRequests: normalizedWithdrawals,
         adminWallet
       });
     } catch (error) {
