@@ -411,7 +411,7 @@ const normalizeProductForService = (p: any) => {
 
 export const searchProducts = async (q: string): Promise<any[]> => {
   try {
-    const response = await fetch(`${API_ORIGIN}/api/products?q=${encodeURIComponent(q)}`);
+    const response = await fetch(`/api/products?q=${encodeURIComponent(q)}`);
     if (!response.ok) return [];
     const data = await response.json();
     if (!Array.isArray(data)) return [];

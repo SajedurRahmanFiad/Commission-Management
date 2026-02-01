@@ -7,20 +7,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const q = (req.query.q || '').toString().trim();
       const role = (req.query.role || '').toString();
       let query = supabase.from('profiles').select('*');
-      if (role) query = query.eq('role', role);
-      if (!q) {
-        const { data, error } = await query;
+        if (role) query = query.eq('role', role);
+        if (!q) {
+          const { data, error } = await query;
+          if (error) throw error;
+          return res.status(200).json(data || []);
+        }
+        const { data, error } = await supabase.from('profiles').select('*').or(`email.ilike.%${q}%,username.ilike.%${q}%`);
         if (error) throw error;
         return res.status(200).json(data || []);
+      } catch (error) {
+        return res.status(500).json({ error: 'Failed to fetch users' });
       }
-      const { data, error } = await supabase.from('profiles').select('*').or(`email.ilike.%${q}%,username.ilike.%${q}%`);
-      if (error) throw error;
-      return res.status(200).json(data || []);
-    } catch (error) {
-      return res.status(500).json({ error: 'Failed to fetch users' });
-    }
-  } else {
-    res.setHeader('Allow', ['GET']);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
+    } else {
+      res.setHeader('Allow', ['GET']);
+      return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 }
