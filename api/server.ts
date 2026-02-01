@@ -1,3 +1,4 @@
+// Deprecated: This file is no longer used. All API endpoints are now serverless functions. Safe to delete.
 
 
 import express, { Request, Response } from 'express';
@@ -6,7 +7,7 @@ import path from 'path';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
-import { supabase } from './services/supabaseClient';
+import { supabase } from '../services/supabaseClient';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
