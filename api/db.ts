@@ -79,7 +79,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         case 'UPDATE_USER':
           // ...existing code for UPDATE_USER...
           break;
-        case 'APPEND_ANNOUNCEMENT': {
+        case 'APPEND_ANNOUNCEMENT':
           try {
             const { data, error } = await supabase.from('announcements').insert([payload]).select();
             if (error) {
@@ -91,8 +91,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.error('APPEND_ANNOUNCEMENT handler error (Next API):', err);
             return res.status(500).json({ error: 'Failed to append announcement', details: String(err) });
           }
-        }
-        case 'UPDATE_ANNOUNCEMENT': {
+          break;
+        case 'UPDATE_ANNOUNCEMENT':
           try {
             const sanitizeAnnouncementUpdate = (a: any) => {
               const keyMap: any = { seenBy: 'seen_by' };
@@ -120,11 +120,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.error('UPDATE_ANNOUNCEMENT handler error (Next API):', e);
             return res.status(500).json({ error: 'Failed to update announcement', details: String(e) });
           }
-        }
+          break;
         case 'DELETE_ANNOUNCEMENT':
           if (payload) await supabase.from('announcements').delete().eq('id', payload.id);
           break;
-        case 'APPEND_WITHDRAWAL': {
+        case 'APPEND_WITHDRAWAL':
           try {
             const sanitizeW = (w: any) => {
               const keyMap: any = { employeeId: 'employee_id', employeeEmail: 'employee_email', accountNumber: 'account_number' };
@@ -181,8 +181,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.error('APPEND_WITHDRAWAL handler error (Next API):', err);
             return res.status(500).json({ error: 'Failed to append withdrawal', details: String(err) });
           }
-        }
-        case 'UPDATE_WITHDRAWAL': {
+          break;
+        case 'UPDATE_WITHDRAWAL':
           try {
             if (!payload || !payload.id) return res.status(400).json({ error: 'id is required for UPDATE_WITHDRAWAL' });
             const keyMap: any = { employeeId: 'employee_id', employeeEmail: 'employee_email', accountNumber: 'account_number' };
@@ -203,7 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.error('UPDATE_WITHDRAWAL handler error (Next API):', err);
             return res.status(500).json({ error: 'Failed to update withdrawal', details: String(err) });
           }
-        }
+          break;
         case 'UPDATE_SALE':
           if (payload) await supabase.from('sales').update(payload).eq('id', payload.id);
           break;
