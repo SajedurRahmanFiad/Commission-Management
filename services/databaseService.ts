@@ -12,8 +12,7 @@ export interface DatabaseResponse {
   adminWallet: number;
 }
 
-const API_ORIGIN = import.meta.env?.DEV ? 'http://localhost:5000' : '';
-const API_BASE = `${API_ORIGIN}/api/db`;
+const API_BASE = `/api/db`;
 
 /**
  * Fetch all data from database files
