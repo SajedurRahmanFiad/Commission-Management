@@ -287,7 +287,7 @@ export const updateUser = async (userData: any): Promise<any | null> => {
  */
 export const login = async (email: string, password: string): Promise<any | null> => {
   try {
-    const res = await fetch(`${API_ORIGIN}/api/login`, {
+    const res = await fetch(`/api/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
