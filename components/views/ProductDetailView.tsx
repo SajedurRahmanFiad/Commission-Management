@@ -73,7 +73,7 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, isAdmin,
               {editing ? <input className="text-2xl sm:text-2xl lg:text-2xl font-bold border-b-2 border-indigo-200 w-full outline-none text-slate-800" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /> : <h2 className="text-2xl sm:text-2xl lg:text-2xl font-bold text-slate-800 tracking-tight">{product.name}</h2>}
             </div>
             <div>
-              {editing ? <textarea className="w-full h-24 sm:h-32 lg:h-40 p-4 sm:p-6 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-slate-700" value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} /> : <p className="text-slate-600 text-sm leading-relaxed">{product.description || "No specific briefing available for this product."}</p>}
+              {editing ? <textarea className="w-full h-24 sm:h-32 lg:h-40 p-4 sm:p-6 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-slate-700" value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} /> : <p className="text-slate-600 text-sm whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: product.description || "No specific briefing available for this product." }}></p>}
             </div>
             <div className="p-4 sm:p-5 bg-indigo-50/50 rounded-[1rem] flex flex-col sm:flex-row justify-between items-start sm:items-center border border-indigo-100 shadow-inner gap-4">
                <div>
