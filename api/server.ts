@@ -7,7 +7,7 @@ import path from 'path';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../services/supabaseClient.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

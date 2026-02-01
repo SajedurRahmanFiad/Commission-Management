@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import multer from 'multer';
 import path from 'path';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../services/supabaseClient.ts';
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
