@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { supabase } from '../services/supabaseClient.ts';
+import { supabase } from '../services/supabaseClient.js';
 
 const DEFAULT_ADMIN = {
   id: '1',
