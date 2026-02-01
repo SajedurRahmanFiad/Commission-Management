@@ -944,6 +944,11 @@ const App: React.FC = () => {
     return applyDateFilter(base, s => s.timestamp);
   }, [state.sales, state.currentUser, isEmployee, dateFilter]);
 
+  // Date-filtered global sales for widgets that should respect the selected date range (e.g., Team Performance)
+  const dateFilteredSales = useMemo(() => {
+    return applyDateFilter(state.sales, s => s.timestamp);
+  }, [state.sales, dateFilter]);
+
   // Calculate badge counts for tabs based on user role
   const badgeCounts = useMemo(() => {
     if (!state.currentUser) {
@@ -999,8 +1004,8 @@ const App: React.FC = () => {
       onDateFilterChange={setDateFilter}
     >
       <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto">
-        {activeTab === 'dashboard' && <DashboardView state={state} isLoading={isLoadingDatabase} onApprove={approveSale} onCreateSale={createSale} displaySales={displaySales} />}
-        {activeTab === 'sales' && <SalesView state={state} onApprove={approveSale} displaySales={displaySales} onCreateSale={createSale} />}
+        {activeTab === 'dashboard' && <DashboardView state={state} isLoading={isLoadingDatabase} onApprove={approveSale} onCreateSale={createSale} displaySales={displaySales} dateFilteredSales={dateFilteredSales} />}
+        {activeTab === 'sales' && <SalesView state={state} onApprove={approveSale} displaySales={displaySales} onCreateSale={createSale} /> }
         {activeTab === 'products' && (
           selectedProductId ? (
             <ProductDetailView 

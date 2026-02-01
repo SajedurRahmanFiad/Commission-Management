@@ -89,10 +89,11 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                 {!isEmployee && <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Agent</th>}
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Customer</th>
                 {(isEmployee || isAdmin) && <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase">Product</th>}
-                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">{isAdmin ? 'Admin amount' : 'Received amount'}</th>
+                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">Amount</th>
+                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">Received amount</th>
                 <th className="px-6 py-3 text-[10px] font-bold text-slate-400 text-center uppercase">Paid by</th>
                 {/* Status column removed — action column will show status when applicable */}
-                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>
+                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase text-right w-28">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -119,7 +120,9 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                       </div>
                     </td>
                     {(isEmployee || isAdmin) && <td className="px-6 py-3 text-xs font-bold text-slate-700">{sale.productName || product?.name || '—'}</td>} 
-                    {/* Show admin share to admins, employee share to employees */}
+                    {/* Show total amount */}
+                    <td className="px-6 py-3 text-sm font-bold text-slate-800 text-center">৳{(Number(sale.amount) || 0).toLocaleString()}</td>
+                    {/* Received amount: visible after approval (for admins show adminShare, for employees show employee share) */}
                     {(() => {
                       // Compute admin vs employee shares
                       let adminShare = 0;
@@ -132,8 +135,8 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                         adminShare = Math.round(((percent || 0) / 100) * (Number(sale.amount) || 0));
                         employeeShare = Math.max(0, (Number(sale.amount) || 0) - adminShare);
                       }
-                      const displayAmount = isAdmin ? adminShare : employeeShare;
-                      return <td className="px-6 py-3 text-sm font-bold text-slate-800 text-center">৳{displayAmount.toLocaleString()}</td>;
+                      const received = isAdmin ? adminShare : employeeShare;
+                      return <td className="px-6 py-3 text-sm font-bold text-slate-800 text-center">{sale.status === 'pending' ? <span className="text-slate-400">—</span> : <>৳{received.toLocaleString()}</>}</td>;
                     })()}
                     <td className="px-6 py-3 text-center">
                       <span
@@ -150,7 +153,7 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                           {sale.paymentMethod}
                         </span>
                       </td>
-                    <td className="px-6 py-3 text-right">
+                    <td className="px-6 py-3 text-right w-28">
                       {sale.status === 'pending' ? (
                         !isEmployee ? (
                           <button
@@ -171,7 +174,7 @@ const SalesView: React.FC<SalesViewProps> = ({ state, onApprove, displaySales, o
                 );
               })}     
               {localSales.length === 0 && (
-                <tr><td colSpan={isEmployee ? 5 : 6} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest text-sm italic font-sans">No Sales Records</td></tr>
+                <tr><td colSpan={isEmployee ? 6 : 7} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest text-sm italic font-sans">No Sales Records</td></tr>
               )}
             </tbody>
           </table>

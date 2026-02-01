@@ -7,11 +7,11 @@ interface SalesPerformanceChartProps {
 }
 
 const SalesPerformanceChart: React.FC<SalesPerformanceChartProps> = ({ users, sales }) => {
-  const employees = users.filter(u => u.role === 'employee');
+  const employees = (users || []).filter(u => u.role === 'employee');
   
   const chartData = useMemo(() => {
     return employees.map(emp => {
-      const count = sales.filter(s => s.employeeId === emp.id && s.status === 'completed').length;
+      const count = (sales || []).filter(s => s.employeeId === emp.id && s.status === 'completed').length;
       return {
         name: emp.username || emp.email.split('@')[0],
         count

@@ -33,6 +33,7 @@ export interface Product {
   description: string;
   mainImage?: string;
   gallery: string[];
+  emailContent?: string;
 }
 
 export interface Announcement {

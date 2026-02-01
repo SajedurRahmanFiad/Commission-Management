@@ -9,9 +9,10 @@ interface DashboardViewProps {
   onApprove: (id: string) => void;
   onCreateSale: (e: string, p: string, a: number, pr: string, m: any) => void;
   displaySales: Sale[];
+  dateFilteredSales: Sale[];
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ state, isLoading = false, onApprove, onCreateSale, displaySales }) => {
+const DashboardView: React.FC<DashboardViewProps> = ({ state, isLoading = false, onApprove, onCreateSale, displaySales, dateFilteredSales }) => {
   const [showModal, setShowModal] = useState(false);
   const isEmployee = state.currentUser?.role === 'employee';
   const [formData, setFormData] = useState({ email: '', phone: '', amount: '', productId: '', method: 'bKash' as any });
@@ -48,7 +49,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ state, isLoading = false,
         ))}
       </div>
 
-      <SalesPerformanceChart users={state.users} sales={displaySales} />
+      <SalesPerformanceChart users={state.users} sales={dateFilteredSales ?? state.sales} />
     </div>
   );
 };

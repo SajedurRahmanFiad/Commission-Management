@@ -13,7 +13,14 @@ interface ProductDetailViewProps {
 
 const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, isAdmin, onClose, onUpdate, onDelete }) => {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<any>({ name: product.name, share: (product.adminShare||0).toString(), desc: product.description, pricingModel: product.pricingModel || 'fixed', commissionPercent: (product.commissionPercent||'') });
+  const [form, setForm] = useState<any>({
+    name: product.name,
+    share: (product.adminShare||0).toString(),
+    desc: product.description,
+    pricingModel: product.pricingModel || 'fixed',
+    commissionPercent: (product.commissionPercent||''),
+    emailContent: product.emailContent || ''
+  });
   const [gallery, setGallery] = useState<string[]>(product.gallery || []);
 
   const handleImgUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'main' | 'gallery') => {
@@ -90,17 +97,32 @@ const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, isAdmin,
                <div className="hidden sm:flex p-5 bg-white rounded-2xl shadow-sm text-indigo-600 items-center justify-center"><Icons.Wallet /></div>
             </div>
             {isAdmin && (
-              <div className="flex flex-col sm:flex-row gap-4 pt-6">
-                {editing ? (
-                  <Button variant="primary" onClick={() => { setEditing(false); const payload: any = { name: form.name, description: form.desc, pricingModel: form.pricingModel };
-                      if (form.pricingModel === 'commission') payload.commissionPercent = parseFloat(form.commissionPercent) || 0;
-                      else payload.adminShare = parseFloat(form.share) || 0;
-                      onUpdate(payload); }} className="w-full sm:flex-1">Save Changes</Button>
-                ) : (
-                  <Button variant="secondary" onClick={() => setEditing(true)} className="w-full sm:flex-1">Edit</Button>
-                )}
-                {editing && <Button variant="danger" onClick={onDelete} className="w-full sm:w-auto flex items-center justify-center"><Icons.Trash /></Button>}
-              </div>
+              <>
+                <div className="pt-8">
+                  <label className="block text-[13px] font-bold text-slate-500 mb-2">Product Email Content</label>
+                  {editing ? (
+                    <textarea
+                      className="w-full min-h-[120px] sm:min-h-[180px] p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-slate-700 text-base font-mono"
+                      value={form.emailContent}
+                      onChange={e => setForm({ ...form, emailContent: e.target.value })}
+                      placeholder="Enter the email content for this product..."
+                    />
+                  ) : (
+                    <div className="whitespace-pre-line bg-slate-50 border border-slate-100 rounded-2xl p-4 text-slate-700 text-base font-mono min-h-[120px]">{product.emailContent || <span className="text-slate-300 italic">No email content set for this product.</span>}</div>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4 pt-6">
+                  {editing ? (
+                    <Button variant="primary" onClick={() => { setEditing(false); const payload: any = { name: form.name, description: form.desc, pricingModel: form.pricingModel, emailContent: form.emailContent };
+                        if (form.pricingModel === 'commission') payload.commissionPercent = parseFloat(form.commissionPercent) || 0;
+                        else payload.adminShare = parseFloat(form.share) || 0;
+                        onUpdate(payload); }} className="w-full sm:flex-1">Save Changes</Button>
+                  ) : (
+                    <Button variant="secondary" onClick={() => setEditing(true)} className="w-full sm:flex-1">Edit</Button>
+                  )}
+                  {editing && <Button variant="danger" onClick={onDelete} className="w-full sm:w-auto flex items-center justify-center"><Icons.Trash /></Button>}
+                </div>
+              </>
             )}
           </div>
         </div>
