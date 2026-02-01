@@ -42,6 +42,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const publicURL = (pub as any)?.data?.publicUrl || (pub as any)?.publicURL || '';
     return res.status(200).json({ success: true, filePath: publicURL, filename });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to upload file', details: err }};
+    return res.status(500).json({ error: 'Failed to upload file', details: err });
   }
 }

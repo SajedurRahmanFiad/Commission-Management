@@ -21,12 +21,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (method === 'GET') {
     try {
-      if (!HAS_SUPABASE) {
-        // Supabase not configured — return in-memory default admin and empty datasets
-        const users = [DEFAULT_ADMIN];
-        return res.status(200).json({ users, sales: [], products: [], announcements: [], withdrawRequests: [], adminWallet: 0 });
-      }
-
       const results = await Promise.all([
         supabase.from('profiles').select('*'),
         supabase.from('sales').select('*'),
@@ -70,88 +64,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (method === 'POST') {
     const { action, payload } = req.body;
-
     try {
-      if (!HAS_SUPABASE) {
-        switch (action) {
-          case 'SYNC_STATE':
-            if (payload.users) mem.users = payload.users;
-            if (payload.sales) mem.sales = payload.sales;
-            if (payload.products) mem.products = payload.products;
-            if (payload.announcements) mem.announcements = payload.announcements;
-            if (payload.withdrawRequests) mem.withdrawRequests = payload.withdrawRequests;
-            break;
-
-          case 'APPEND_SALE':
-            mem.sales.unshift(payload);
-            break;
-
-          case 'UPDATE_USER': {
-            const idx = mem.users.findIndex((u: any) => u.id === payload.id || (u.email || '').toLowerCase() === (payload.email || '').toLowerCase());
-            if (idx > -1) mem.users[idx] = { ...mem.users[idx], ...payload };
-            else mem.users.push(payload);
-            break;
-          }
-
-          case 'APPEND_ANNOUNCEMENT': {
-            // Sanitize announcement payload for DB (memory fallback)
-            const sanitizeAnnouncement = (a: any) => {
-              const keyMap: any = { seenBy: 'seen_by' };
-              const allowed = ['id','title','content','timestamp','seen_by'];
-              const out: any = {};
-              Object.keys(a || {}).forEach(k => {
-                const mapped = keyMap[k] || k;
-                if (allowed.includes(mapped)) out[mapped] = a[k];
-              });
-              return out;
-            };
-            try {
-              const sanitized = sanitizeAnnouncement(payload);
-              // Drop non-UUID temp id
-              const isUUID = (s: any) => typeof s === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(s);
-              if (sanitized.id && !isUUID(sanitized.id)) delete sanitized.id;
-              mem.announcements.unshift(sanitized);
-            } catch (e) {
-              console.error('APPEND_ANNOUNCEMENT (next api, mem fallback) error', e);
-            }
-          }
+      switch (action) {
+        case 'SYNC_STATE':
+          if (payload.users) await supabase.from('profiles').upsert(payload.users, { onConflict: 'id' });
+          if (payload.sales) await supabase.from('sales').upsert(payload.sales, { onConflict: 'id' });
+          if (payload.products) await supabase.from('products').upsert(payload.products, { onConflict: 'id' });
+          if (payload.announcements) await supabase.from('announcements').upsert(payload.announcements, { onConflict: 'id' });
+          if (payload.withdrawRequests) await supabase.from('withdraw_requests').upsert(payload.withdrawRequests, { onConflict: 'id' });
           break;
-
-          case 'UPDATE_ANNOUNCEMENT':
-            mem.announcements = mem.announcements.map((a: any) => a.id === payload.id ? payload : a);
-            break;
-
-          case 'DELETE_ANNOUNCEMENT':
-            mem.announcements = mem.announcements.filter((a: any) => a.id !== payload.id);
-            break;
-
-          case 'APPEND_WITHDRAWAL':
-            mem.withdrawRequests.unshift(payload);
-            break;
-
-          case 'UPDATE_WITHDRAWAL':
-            mem.withdrawRequests = mem.withdrawRequests.map((w: any) => w.id === payload.id ? payload : w);
-            break;
-
-          case 'UPDATE_SALE':
-            mem.sales = mem.sales.map((s: any) => s.id === payload.id ? payload : s);
-            break;
-
-          case 'UPDATE_PRODUCT':
-            if (Array.isArray(payload)) mem.products = payload;
-            else if (payload.id) {
-              const idxp = mem.products.findIndex((p: any) => p.id === payload.id);
-              if (idxp > -1) mem.products[idxp] = { ...mem.products[idxp], ...payload };
-              else mem.products.push(payload);
+        case 'APPEND_SALE':
+          await supabase.from('sales').insert([payload]);
+          break;
+        case 'UPDATE_USER':
+          // ...existing code for UPDATE_USER...
+          break;
+        case 'APPEND_ANNOUNCEMENT':
+          try {
+            const { data, error } = await supabase.from('announcements').insert([payload]).select();
+            if (error) {
+              console.error('Supabase insert announcement error (Next API):', error);
+              return res.status(500).json({ error: 'Failed to append announcement', details: error });
             }
-            break;
-
-          default:
-            return res.status(400).json({ error: 'Unknown action' });
-        }
-
-        return res.status(200).json({ success: true, mem });
+            return res.status(200).json({ success: true, stored: data && data[0] });
+          } catch (err: any) {
+            console.error('APPEND_ANNOUNCEMENT handler error (Next API):', err);
+            return res.status(500).json({ error: 'Failed to append announcement', details: String(err) });
+          }
+        case 'UPDATE_ANNOUNCEMENT':
+          // ...existing code for UPDATE_ANNOUNCEMENT...
+          break;
+        case 'DELETE_ANNOUNCEMENT':
+          await supabase.from('announcements').delete().eq('id', payload.id);
+          break;
+        case 'APPEND_WITHDRAWAL':
+          // ...existing code for APPEND_WITHDRAWAL...
+          break;
+        case 'UPDATE_WITHDRAWAL':
+          // ...existing code for UPDATE_WITHDRAWAL...
+          break;
+        case 'UPDATE_SALE':
+          await supabase.from('sales').update(payload).eq('id', payload.id);
+          break;
+        case 'UPDATE_PRODUCT':
+          if (Array.isArray(payload)) await supabase.from('products').upsert(payload, { onConflict: 'id' });
+          else if (payload.id) await supabase.from('products').upsert([payload], { onConflict: 'id' });
+          break;
+        default:
+          return res.status(400).json({ error: 'Unknown action' });
       }
+      return res.status(200).json({ success: true });
+    } catch (error) {
+      console.error('POST DB Write Error (Next API):', error);
+      return res.status(500).json({ error: 'Failed to write to database' });
+    }
+  }
 
       switch (action) {
         case 'SYNC_STATE':
