@@ -4,51 +4,11 @@
     "email": "admin@system.com",
     "password": "admin",
     "role": "admin",
-    "wallet": 1877,
+    "wallet": 1000,
     "totalSalesCount": 5,
-    "notifications": [
-      {
-        "id": "0.8305310432253838",
-        "message": "New Broadcast: fgyjtgfy",
-        "timestamp": "2026-01-29T20:31:00.508Z",
-        "read": true,
-        "type": "announcement"
-      }
-    ],
+    "notifications": [],
     "username": "Test1",
     "avatar": "/database/uploads/avatars/1769799311473.png",
-    "paymentAccounts": {
-      "bKash": "01710800000",
-      "Nagad": "",
-      "Rocket": ""
-    }
-  },
-  {
-    "id": "5e9mljqbh",
-    "email": "test@gmail.com",
-    "password": "12345",
-    "role": "employee",
-    "wallet": 0,
-    "totalSalesCount": 5,
-    "notifications": [],
-    "username": "TestUser",
-    "avatar": "/database/uploads/avatars/1769633951048.png",
-    "paymentAccounts": {
-      "bKash": "01404020000",
-      "Nagad": "01710800000",
-      "Rocket": ""
-    }
-  },
-  {
-    "id": "i9poqhg5s",
-    "email": "test1@gmail.com",
-    "password": "12345",
-    "role": "employee",
-    "wallet": 1063,
-    "totalSalesCount": 4,
-    "notifications": [],
-    "username": "",
-    "avatar": "",
     "paymentAccounts": {
       "bKash": "01710800000",
       "Nagad": "",
